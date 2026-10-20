@@ -57,10 +57,10 @@ def image_of(obj, alt):
     """Return the image markup, keeping to the museum's size limit, or "" if none may be shown."""
     level = obj.get("imagepermissionlevel", 2)
     images = sorted(obj.get("images") or [], key=lambda im: im.get("displayorder") or 99)
-    if level >= 2 or not images:
-        return ""
-    image = images[0]
+    image = images[0] if images else {}
     base = image.get("baseimageurl") or obj.get("primaryimageurl") or ""
+    if level >= 2 or not base:
+        return ""
     urn = base.rsplit("/", 1)[-1]
     parts = urn.split(":", 2)
     if len(parts) != 3 or parts[0].lower() != "urn-3":
@@ -217,7 +217,11 @@ def main():
             anchor = f"{anchor}-{work['id']}"
         used.add(anchor)
         items.append((work, obj, anchor))
-        print(f"Loaded {work['id']}: {obj.get('title')} ({obj.get('dated')})")
+        images = obj.get("images") or []
+        print(f"Loaded {work['id']}: {obj.get('title')} ({obj.get('dated')}); "
+              f"image permission level {obj.get('imagepermissionlevel')}, {len(images)} image record(s), "
+              f"primary image {'yes' if obj.get('primaryimageurl') else 'no'}, "
+              f"image shown {'yes' if image_of(obj, '') else 'no'}")
 
     items.sort(key=lambda item: (item[1].get("datebegin") or 0, item[1].get("dated") or ""))
     page = (ROOT / "template.html").read_text(encoding="utf-8")
