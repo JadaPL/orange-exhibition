@@ -1,6 +1,6 @@
 """Build the exhibition page from works.json and the Harvard Art Museums API.
 
-Reads the API key from the HAM_API_KEY environment variable, looks up every
+Reads the API key from the HARVARD_API_KEY environment variable, looks up every
 work listed in works.json, and writes site/index.html from template.html.
 """
 
@@ -34,7 +34,7 @@ def fetch_object(object_id, key):
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.load(response)
     except urllib.error.HTTPError as err:
-        hints = {401: " Check the HAM_API_KEY secret.", 403: " Check the HAM_API_KEY secret.",
+        hints = {401: " Check the HARVARD_API_KEY value.", 403: " Check the HARVARD_API_KEY value.",
                  404: " Check the object number in works.json."}
         sys.exit(f"Could not load object {object_id} from the Harvard Art Museums API "
                  f"(HTTP {err.code}).{hints.get(err.code, '')}")
@@ -207,9 +207,10 @@ def scale_of(items):
 
 
 def main():
-    key = os.environ.get("HAM_API_KEY")
+    key = os.environ.get("HARVARD_API_KEY")
     if not key:
-        sys.exit("HAM_API_KEY is not set. Add it as a repository secret on GitHub.")
+        sys.exit("HARVARD_API_KEY is not set. Add it as a repository secret on GitHub "
+                 "and as an environment variable on Vercel.")
     works = json.loads((ROOT / "works.json").read_text(encoding="utf-8"))
 
     items, used = [], set()
