@@ -183,22 +183,39 @@ def entry_of(work, obj, anchor):
 
 
 def exhibition_data(items):
-    """The works as JSON for the color search, which lists matching exhibition works first."""
+    """The works as JSON for the color search, which lists matching exhibition works first
+    and shows the same details as /api/work when one is selected."""
     works = []
     for work, obj, _ in items:
         source = image_source(obj, work)
-        artist = artist_of(obj)[0]
+        artist, artist_detail = artist_of(obj)
         title = obj.get("title") or "Untitled"
+        museum, _, credit = (obj.get("creditline") or "").partition(", ")
+        gallery = obj.get("gallery") or {}
+        labels = [{"source": "Exhibition wall label", "text": work["label"]}]
+        museum_label = re.sub(r"\n{3,}", "\n\n", (obj.get("labeltext") or "").replace("\r\n", "\n")).strip()
+        if museum_label:
+            labels.append({"source": "Wall label · Harvard Art Museums", "text": museum_label})
         works.append({
             "id": work["id"],
             "level": obj.get("imagepermissionlevel", 2),
             "title": title,
             "artist": artist,
+            "artistDetail": artist_detail,
             "dated": obj.get("dated") or "",
             "url": obj.get("url") or f"https://harvardartmuseums.org/collections/object/{work['id']}",
             "image": source[0](RESTRICTED_PX if source[1] == 1 else 480) if source else None,
+            "large": source[0](RESTRICTED_PX if source[1] == 1 else 1200) if source else None,
             "alt": work.get("alt") or (source[2].get("alttext") if source else None) or f"{title} by {artist}",
+            "caption": " · ".join(part for part in (obj.get("copyright"), "Photo: Harvard Art Museums") if part),
             "colors": [{"color": c["color"], "percent": round(c["percent"], 3)} for c in obj.get("colors") or []],
+            "museum": museum.replace("/", " / "),
+            "credit": credit,
+            "objectnumber": obj.get("objectnumber") or "",
+            "medium": obj.get("medium") or "",
+            "gallery": (f"Level {gallery['floor']}, Room {gallery['gallerynumber']}"
+                        if gallery.get("floor") and gallery.get("gallerynumber") else gallery.get("displayname")),
+            "labels": labels,
         })
     # Keep "</" out of the inline script so a title can never close the tag.
     return json.dumps(works, ensure_ascii=False).replace("</", "<\\/")

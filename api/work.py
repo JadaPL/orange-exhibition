@@ -44,14 +44,17 @@ def plain(text):
 
 
 def labels_of(record):
-    """The museum's wall label, or other label texts it has published for the work."""
+    """The museum's wall label, or other label or gallery texts it has published for the work.
+
+    Other texts, such as catalogue entries, aren't wall labels and are left out.
+    """
     if plain(record.get("labeltext")):
         return [{"source": "Wall label · Harvard Art Museums", "text": plain(record["labeltext"])}]
     labels = []
     for item in record.get("contextualtext") or []:
+        kind = item.get("type") or item.get("context") or ""
         text = plain(item.get("text"))
-        if text:
-            kind = item.get("type") or item.get("context") or "Label text"
+        if text and re.search(r"label|gallery", kind, re.I):
             labels.append({"source": f"{kind} · Harvard Art Museums", "text": text})
     return labels[:2]
 
@@ -136,5 +139,8 @@ class handler(BaseHTTPRequestHandler):
             return
         except (urllib.error.URLError, TimeoutError):
             self.send_json(502, {"error": "The museum's collection didn't respond. Try again in a minute."})
+            return
+        if not record.get("objectid"):
+            self.send_json(404, {"error": "The museum has no work with that number."})
             return
         self.send_json(200, detail_of(record))

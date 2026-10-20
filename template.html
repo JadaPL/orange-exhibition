@@ -559,6 +559,65 @@
   }
   .finder-note { margin: 0; font-family: var(--font-display); font-size: 0.75rem; color: var(--muted); }
 
+  /* ---------- Selected work ---------- */
+  body:has(.work-dialog[open]) { overflow: hidden; }
+  .work-dialog {
+    width: min(48rem, calc(100% - 2rem));
+    max-width: none;
+    max-height: calc(100% - 2rem);
+    margin: auto;
+    padding: 0;
+    border: 0;
+    background: var(--bg);
+    color: var(--ink);
+    box-shadow: 0 24px 64px -24px rgb(0 0 0 / 0.55);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .work-dialog::backdrop { background: rgb(20 17 15 / 0.62); }
+  .dialog-bar {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.75rem 0.75rem 0.5rem;
+    background: linear-gradient(var(--bg) 65%, transparent);
+  }
+  .dialog-close {
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    padding: 0.4rem 0.9rem;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+  }
+  .dialog-close:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+  .dialog-body {
+    display: grid;
+    gap: 1.25rem;
+    padding: 0 clamp(1rem, 4vw, 2rem) 2rem;
+  }
+  .dialog-body .wall img { max-height: 70vh; width: auto; }
+  .placard.long { gap: 0.75rem; }
+  .placard.long p:not(.eyebrow) {
+    margin: 0;
+    font-size: 1.0625rem;
+    line-height: 1.55;
+  }
+  .placard .muted { color: var(--muted); }
+  .dialog-status {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  @media (max-width: 640px) {
+    .work-dialog { width: 100%; height: 100%; max-height: 100%; }
+  }
+
   footer {
     border-top: 1px solid var(--line);
     padding-top: 1.25rem;
@@ -637,7 +696,7 @@
     <div class="results" id="results" hidden></div>
     <div class="finder-foot" id="finder-foot" hidden>
       <button type="button" class="more" id="more">Show more</button>
-      <p class="finder-note">Only works the museum allows at full size appear in search. Results open on the museum's website.</p>
+      <p class="finder-note">Select a work to see its details and wall label. Only works the museum allows at full size appear in search.</p>
     </div>
   </section>
 
@@ -650,6 +709,14 @@
   </main>
   </div>
 
+
+  <dialog class="work-dialog" id="work-dialog" aria-labelledby="dialog-title">
+    <div class="dialog-bar">
+      <button type="button" class="dialog-close" id="dialog-close">Close</button>
+    </div>
+    <div class="dialog-body" id="dialog-body"></div>
+  </dialog>
+
   <footer>
     <p>Names, dates, collection details, palettes and gallery locations come from the Harvard Art Museums collection website (October 2026). Images load from Harvard's public image service. Works with image restrictions are shown no larger than 256 pixels, as the museum requires.</p>
   </footer>
@@ -659,13 +726,13 @@
 <script>
   (() => {
     // On Vercel the search runs on the same site; the GitHub Pages copy calls the Vercel one.
-    const API = location.hostname.endsWith("vercel.app")
-      ? "/api/search"
-      : "https://orange-exhibition.vercel.app/api/search";
+    const BASE = location.hostname.endsWith("vercel.app") ? "" : "https://orange-exhibition.vercel.app";
+    const SEARCH_API = `${BASE}/api/search`;
+    const WORK_API = `${BASE}/api/work`;
 
     const exhibition = document.getElementById("exhibition");
     const exhibitionWorks = JSON.parse(document.getElementById("exhibition-data").textContent);
-    const exhibitionIds = new Set(exhibitionWorks.map((w) => w.id));
+    const exhibitionById = new Map(exhibitionWorks.map((w) => [w.id, w]));
     const form = document.getElementById("color-search");
     const picker = document.getElementById("color-picker");
     const text = document.getElementById("color-text");
@@ -675,7 +742,36 @@
     const foot = document.getElementById("finder-foot");
     const more = document.getElementById("more");
     const presets = [...document.querySelectorAll(".preset")];
-    let current = null;
+    const dialog = document.getElementById("work-dialog");
+    const dialogBody = document.getElementById("dialog-body");
+
+    const seen = new Map();    // search results by id, so a selected work shows at once
+    const details = new Map(); // full details from /api/work, by id
+    let current = null;        // the search on screen
+    let openId = null;         // the work in the dialog
+    let workEntryPushed = false; // whether closing the dialog should go back a history entry
+    let leavingWork = false;     // the dialog closed and the browser is still stepping back
+    let queuedWork = null;       // a work selected while that step was still under way
+    let closingQuietly = false;  // the page closed the dialog itself and has already updated history
+
+    function el(tag, className, content) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (content != null) node.textContent = content;
+      return node;
+    }
+
+    function hashFor(state) {
+      const parts = [];
+      if (state && state.color) parts.push("color=" + state.color.slice(1));
+      if (state && state.work) parts.push("work=" + state.work);
+      return parts.length ? "#" + parts.join("&") : location.pathname + location.search;
+    }
+
+    function presetName(color) {
+      const preset = presets.find((b) => b.dataset.color === color);
+      return preset ? preset.textContent.toLowerCase() : null;
+    }
 
     // Accepts #rgb, #rrggbb, or any CSS color name the browser knows, such as teal or salmon.
     function parseColor(value) {
@@ -695,60 +791,53 @@
     function setStatus(message, swatch) {
       statusLine.textContent = "";
       if (swatch) {
-        const chip = document.createElement("span");
-        chip.className = "status-swatch";
+        const chip = el("span", "status-swatch");
         chip.style.setProperty("--c", swatch);
         statusLine.append(chip);
       }
       statusLine.append(document.createTextNode(message));
     }
 
-    function card(work, inExhibition) {
-      const link = document.createElement("a");
-      link.className = "result";
-      link.href = work.url;
-      link.target = "_blank";
-      link.rel = "noopener";
+    function fillStrip(strip, colors) {
+      for (const c of colors) {
+        const seg = el("i");
+        seg.style.flexGrow = c.percent;
+        seg.style.background = c.color;
+        seg.title = `${c.color} · ${(c.percent * 100).toFixed(1)}%`;
+        strip.append(seg);
+      }
+    }
 
-      const thumb = document.createElement("div");
-      thumb.className = "thumb";
-      const img = document.createElement("img");
+    function card(work, inExhibition) {
+      const link = el("a", "result");
+      link.href = hashFor({ color: current && current.color, work: work.id });
+      link.addEventListener("click", (event) => {
+        // Let Cmd/Ctrl-click open the work's own link in a new tab.
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+        event.preventDefault();
+        openWork(work.id);
+      });
+
+      const thumb = el("div", "thumb");
+      const img = el("img");
       img.src = work.image;
       img.loading = "lazy";
       img.alt = work.alt || `${work.title} by ${work.artist}`;
       thumb.append(img);
       link.append(thumb);
 
-      if (inExhibition) {
-        const tag = document.createElement("p");
-        tag.className = "result-tag";
-        tag.textContent = "In this exhibition";
-        link.append(tag);
-      }
+      if (inExhibition) link.append(el("p", "result-tag", "In this exhibition"));
 
-      const title = document.createElement("p");
-      title.className = "result-title";
-      title.textContent = work.title;
-
-      const meta = document.createElement("p");
-      meta.className = "result-meta";
-      meta.textContent = [work.artist, work.dated].filter(Boolean).join(" · ");
-
-      const strip = document.createElement("div");
-      strip.className = "mini-strip";
+      const strip = el("div", "mini-strip");
       strip.setAttribute("aria-hidden", "true");
-      for (const c of work.colors.slice(0, 8)) {
-        const seg = document.createElement("i");
-        seg.style.flexGrow = c.percent;
-        seg.style.background = c.color;
-        strip.append(seg);
-      }
+      fillStrip(strip, work.colors.slice(0, 8));
 
-      const share = document.createElement("p");
-      share.className = "result-share";
-      share.textContent = `${Math.max(1, Math.round(work.share * 100))}% close to your color`;
-
-      link.append(title, meta, strip, share);
+      link.append(
+        el("p", "result-title", work.title),
+        el("p", "result-meta", [work.artist, work.dated].filter(Boolean).join(" · ")),
+        strip,
+        el("p", "result-share", `${Math.max(1, Math.round(work.share * 100))}% close to your color`),
+      );
       return link;
     }
 
@@ -766,7 +855,7 @@
       const search = current;
       more.disabled = true;
       try {
-        const response = await fetch(`${API}?color=${encodeURIComponent(search.color)}&page=${page}`);
+        const response = await fetch(`${SEARCH_API}?color=${encodeURIComponent(search.color)}&page=${page}`);
         const data = await response.json();
         if (search !== current) return; // a newer search started meanwhile
         if (!response.ok) throw new Error(data.error || "Search isn't working right now. Try again in a minute.");
@@ -777,7 +866,10 @@
           search.ours = exhibitionMatches(data.query.colors);
           search.ours.forEach((work) => results.append(card(work, true)));
         }
-        data.results.filter((work) => !exhibitionIds.has(work.id)).forEach((work) => results.append(card(work, false)));
+        data.results.filter((work) => !exhibitionById.has(work.id)).forEach((work) => {
+          seen.set(work.id, work);
+          results.append(card(work, false));
+        });
 
         // The API search only covers works shown at full size, so restricted exhibition works add to its count.
         const total = data.total + search.ours.filter((w) => w.level !== 0).length;
@@ -799,7 +891,8 @@
       }
     }
 
-    function search(color, label, remember = true) {
+    // mode: "push" adds a history entry, "replace" updates the current one, "none" leaves history alone.
+    function search(color, label, mode = "push") {
       current = { color, label: label || color, page: 0, pages: 0, ours: [] };
       picker.value = color;
       if (!text.value.trim()) text.value = current.label;
@@ -811,9 +904,8 @@
       setStatus("Searching…", color);
       // Each search gets its own history entry, so the browser's Back button returns to the exhibition.
       const state = { color, label: current.label };
-      const hash = "#color=" + color.slice(1);
-      if (remember) history.pushState(state, "", hash);
-      else history.replaceState(state, "", hash);
+      if (mode === "push") history.pushState(state, "", hashFor(state));
+      else if (mode === "replace") history.replaceState(state, "", hashFor(state));
       load(1);
     }
 
@@ -829,6 +921,171 @@
       exhibition.hidden = false;
       if (remember) history.pushState(null, "", location.pathname + location.search);
     }
+
+    // The selected work, laid out like the exhibition entries. problem is "loading", an error message, or null.
+    function renderDetail(work, problem) {
+      const parts = [];
+      const src = work.large || work.image;
+      if (src) {
+        const figure = el("figure", "artwork");
+        const wall = el("div", "wall");
+        const img = el("img");
+        img.src = src;
+        img.alt = work.alt || `${work.title} by ${work.artist}`;
+        wall.append(img);
+        figure.append(wall);
+        if (work.caption) figure.append(el("figcaption", null, work.caption));
+        parts.push(figure);
+      }
+
+      const head = el("div", "work-head");
+      const title = el("h2", null, work.title);
+      title.id = "dialog-title";
+      const artist = el("p", "artist", work.artist);
+      if (work.artistDetail) artist.append(el("span", null, ` · ${work.artistDetail}`));
+      head.append(title, artist);
+      parts.push(head);
+
+      if (work.colors && work.colors.length) {
+        const palette = el("figure", "palette");
+        palette.style.margin = "0";
+        const strip = el("div", "strip");
+        strip.setAttribute("role", "img");
+        strip.setAttribute("aria-label", "The work's color palette");
+        fillStrip(strip, work.colors);
+        palette.append(strip, el("figcaption", null, "Palette from the museum's color analysis of the work"));
+        parts.push(palette);
+      }
+
+      const facts = el("dl", "facts");
+      const addFact = (label, dd) => facts.append(el("dt", null, label), dd);
+      const name = el("dd");
+      name.append(el("cite", null, work.title));
+      addFact("Name", name);
+      addFact("Artist", el("dd", null, work.artist));
+      if (work.dated) addFact("Date", el("dd", "num", work.dated));
+      if (work.museum) {
+        const dd = el("dd", null, work.museum);
+        const credit = [work.credit, work.objectnumber].filter(Boolean).join(" · ");
+        if (credit) dd.append(el("small", null, credit));
+        addFact("Collection", dd);
+      }
+      if (work.medium) addFact("Medium", el("dd", null, work.medium));
+      parts.push(facts);
+
+      if (problem === "loading") {
+        parts.push(el("p", "dialog-status", "Loading the museum's details and wall label…"));
+      } else if (problem) {
+        parts.push(el("p", "dialog-status", problem));
+      } else if (work.labels && work.labels.length) {
+        for (const label of work.labels) {
+          const placard = el("figure", label.text.length > 160 ? "placard long" : "placard");
+          placard.append(el("p", "eyebrow", label.source));
+          label.text.split(/\n\s*\n/).forEach((para) => placard.append(el("p", null, para.trim())));
+          parts.push(placard);
+        }
+      } else {
+        const placard = el("figure", "placard long");
+        placard.append(
+          el("p", "eyebrow", "Wall label"),
+          el("p", "muted", "The Harvard Art Museums hasn't published a wall label for this work."),
+        );
+        parts.push(placard);
+      }
+
+      const footRow = el("div", "foot-row");
+      if (work.gallery) footRow.append(el("span", "chip", `On view · ${work.gallery}`));
+      if (work.url) {
+        const link = el("a", null, "View on the museum's website");
+        link.href = work.url;
+        link.target = "_blank";
+        link.rel = "noopener";
+        footRow.append(link);
+      }
+      parts.push(footRow);
+      dialogBody.replaceChildren(...parts);
+    }
+
+    // mode: "push" adds a history entry, "replace" updates the current one (a link opened directly),
+    // "none" means the browser already moved to this work's entry.
+    function openWork(id, mode = "push") {
+      if (leavingWork && mode === "push") {
+        queuedWork = id; // open it once the browser has finished going back
+        return;
+      }
+      openId = id;
+      const full = exhibitionById.get(id) || details.get(id);
+      renderDetail(full || seen.get(id) || { id, title: "Loading…", artist: "", colors: [], labels: [] }, full ? null : "loading");
+      if (!dialog.open) dialog.showModal();
+      dialog.scrollTop = 0;
+      if (mode !== "none") {
+        const state = { ...(history.state || {}), work: id };
+        if (mode === "push") history.pushState(state, "", hashFor(state));
+        else history.replaceState(state, "", hashFor(state));
+      }
+      workEntryPushed = mode !== "replace";
+      if (full) return;
+      fetch(`${WORK_API}?id=${encodeURIComponent(id)}`)
+        .then(async (response) => {
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Couldn't load this work's details. Try again in a minute.");
+          details.set(id, data);
+          if (openId === id && dialog.open) renderDetail(data, null);
+        })
+        .catch((err) => {
+          if (openId !== id || !dialog.open) return;
+          const message = err.message === "Failed to fetch"
+            ? "Couldn't reach the museum's details. Check your connection and try again." : err.message;
+          renderDetail(seen.get(id) || { id, title: "This work", artist: "", colors: [], labels: [] }, message);
+        });
+    }
+
+    function hideDialog() {
+      if (dialog.open) {
+        closingQuietly = true;
+        dialog.close();
+      }
+      openId = null;
+    }
+
+    // Take the work out of the address, going back if opening it added a history entry.
+    function leaveWorkEntry() {
+      const state = history.state || {};
+      if (!state.work) return;
+      if (workEntryPushed) {
+        leavingWork = true;
+        history.back();
+      } else {
+        const { work, ...rest } = state;
+        history.replaceState(rest.color ? rest : null, "", hashFor(rest));
+      }
+    }
+
+    // Close, Esc and a click on the backdrop all close the work here, right away. The browser's
+    // own "close" event arrives a moment later, too late to update history safely.
+    function closeWork() {
+      if (!dialog.open) return;
+      hideDialog();
+      leaveWorkEntry();
+    }
+
+    document.getElementById("dialog-close").addEventListener("click", closeWork);
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) closeWork(); // a click on the backdrop
+    });
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault(); // Esc
+      closeWork();
+    });
+    dialog.addEventListener("close", () => {
+      if (closingQuietly) {
+        closingQuietly = false;
+        return;
+      }
+      // The browser closed the dialog without the page, for example a second Esc.
+      openId = null;
+      leaveWorkEntry();
+    });
 
     form.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -850,18 +1107,42 @@
     }));
     more.addEventListener("click", () => load(current.page + 1));
     back.addEventListener("click", () => showExhibition());
+
     window.addEventListener("popstate", (event) => {
-      if (event.state && event.state.color) {
-        text.value = event.state.label;
-        search(event.state.color, event.state.label, false);
-      } else {
+      if (leavingWork) {
+        // This step only left the closed work's entry; the search under it is still on screen.
+        leavingWork = false;
+        if (queuedWork !== null) {
+          const id = queuedWork;
+          queuedWork = null;
+          openWork(id);
+        }
+        return;
+      }
+      const state = event.state || {};
+      if (state.color) {
+        if (!current || current.color !== state.color) {
+          text.value = state.label;
+          search(state.color, state.label, "none");
+        }
+      } else if (current) {
         showExhibition(false);
       }
+      if (state.work) openWork(state.work, "none");
+      else hideDialog();
     });
 
-    // A link like …#color=e8590c opens straight into that search.
-    const linked = location.hash.match(/^#color=([0-9a-f]{6})$/i);
-    if (linked) search("#" + linked[1].toLowerCase(), null, false);
+    // Links like …#color=e8590c or …#color=e8590c&work=323544 open straight into that view.
+    const linked = new URLSearchParams(location.hash.slice(1));
+    const linkedColor = (linked.get("color") || "").match(/^[0-9a-f]{6}$/i);
+    const linkedWork = (linked.get("work") || "").match(/^\d+$/);
+    if (linkedColor) {
+      const color = "#" + linkedColor[0].toLowerCase();
+      const name = presetName(color);
+      if (name) text.value = name;
+      search(color, name || color, "replace");
+    }
+    if (linkedWork) openWork(Number(linkedWork[0]), "replace");
   })();
 </script>
 </body>

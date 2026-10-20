@@ -28,11 +28,13 @@ A timeline exhibition of abstract paintings from the [Harvard Art Museums](https
 
 ## Finding art by color
 
-The search bar near the top of the page finds works in the Harvard Art Museums collection that use a color. Pick a swatch, choose any color with the color picker, or type a name like `teal` or a code like `#e8590c`. Results open on the museum's website.
+The search bar near the top of the page finds works in the Harvard Art Museums collection that use a color. Pick a swatch, choose any color with the color picker, or type a name like `teal` or a code like `#e8590c`.
+
+Select a result to see it laid out like the exhibition entries: the image, name, artist, date, collection, medium, palette, gallery location and a link to the museum's page. The wall label is the Harvard Art Museums' own label text. Many works don't have one, and the page says so. Works from this exhibition show both your wall label and the museum's. **Close**, Esc, or the browser's Back button returns to the results, and each work has its own link, such as `#color=fa7d19&work=323544`.
 
 While you search, the exhibition timeline is hidden. Works from this exhibition that use colors close to the one you searched appear first, marked "In this exhibition". **Back to the exhibition**, or the browser's Back button, returns to the timeline. A link ending in `#color=e8590c` opens straight into that search.
 
-The search runs in `api/search.py`, a Vercel server function at `/api/search`. It calls the Harvard Art Museums API with the `HARVARD_API_KEY` environment variable on Vercel, so the key never reaches visitors' browsers. The GitHub Pages copy of the site uses the same Vercel search.
+The search runs in `api/search.py`, a Vercel server function at `/api/search`, and a selected work's details and wall label come from `api/work.py` at `/api/work`. It calls the Harvard Art Museums API with the `HARVARD_API_KEY` environment variable on Vercel, so the key never reaches visitors' browsers. The GitHub Pages copy of the site uses the same Vercel search.
 
 - The museum records each work's main colors on a palette whose channels step by 25. The search looks for the closest palette color and its neighbors.
 - Only works the museum allows at full size appear, because the API leaves out images of restricted works.
@@ -56,3 +58,4 @@ Images load from Harvard's public image service. Works with museum image restric
 - `build.py`: builds the page from the API.
 - `vercel.json`: the build settings for Vercel.
 - `api/search.py`: the color search, run by Vercel.
+- `api/work.py`: a selected work's details and wall label, run by Vercel.
