@@ -30,6 +30,14 @@ A timeline exhibition of abstract paintings from the [Harvard Art Museums](https
 
 The search bar near the top of the page finds works in the Harvard Art Museums collection that use a color. Pick a swatch, choose any color with the color picker, or type a name like `teal` or a code like `#e8590c`.
 
+**Sort by** puts the results in one of three orders. Works from this exhibition stay first, in the same order.
+
+- **Closest to your color** (the default): how much of the image is close to your color.
+- **Brightest overall**: the brightness of the whole image, brightest first.
+- **Brightest in your color**: the brightness of the shades close to your color in that image, brightest first.
+
+Brightness comes from the museum's color analysis of each work, measured as perceived lightness from 0 (black) to 100 (white) and weighted by how much of the image each color covers. Sorting covers the results loaded so far, and **Show more** adds the next ones in order.
+
 Select a result to see it laid out like the exhibition entries: the image, name, artist, date, collection, medium, palette, gallery location and a link to the museum's page. The wall label is the Harvard Art Museums' own label text. Many works don't have one, and the page says so. Works from this exhibition show both your wall label and the museum's. **Close**, Esc, or the browser's Back button returns to the results, and each work has its own link, such as `#color=fa7d19&work=323544`.
 
 While you search, the exhibition timeline is hidden. Works from this exhibition that use colors close to the one you searched appear first, marked "In this exhibition". **Back to the exhibition**, or the browser's Back button, returns to the timeline. A link ending in `#color=e8590c` opens straight into that search.

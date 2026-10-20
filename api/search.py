@@ -71,7 +71,7 @@ def result_of(record, matches):
         "url": record.get("url") or f"https://harvardartmuseums.org/collections/object/{record.get('objectid')}",
         "image": thumbnail(record.get("primaryimageurl")),
         "share": round(sum(c.get("percent", 0) for c in colors if matches(c)), 3),
-        "colors": [{"color": c.get("color"), "percent": round(c.get("percent", 0), 3)} for c in colors[:8]],
+        "colors": [{"color": c.get("color"), "percent": round(c.get("percent", 0), 3)} for c in colors],
     }
 
 

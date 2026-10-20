@@ -492,6 +492,42 @@
     background: var(--c);
     box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
   }
+  .sort {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .sort legend {
+    float: left;
+    padding: 0;
+    margin-right: 0.25rem;
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .sort label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.75rem 0.3rem 0.55rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--bg);
+    font-family: var(--font-display);
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+  .sort input { margin: 0; accent-color: var(--button-bg); }
+  .sort label:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+  .sort label:has(input:focus-visible) { outline: 2px solid var(--orange); outline-offset: 2px; }
   .results {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
@@ -531,7 +567,7 @@
     overflow: hidden;
   }
   .result:hover .result-title { text-decoration: underline; text-underline-offset: 3px; }
-  .result-meta, .result-share {
+  .result-meta, .result-share, .result-bright {
     margin: 0;
     font-family: var(--font-display);
     font-size: 0.75rem;
@@ -693,6 +729,12 @@
       <p class="search-status" id="search-status" role="status" aria-live="polite"></p>
       <button type="button" class="back" id="back" hidden>Back to the exhibition</button>
     </div>
+    <fieldset class="sort" id="sort" hidden>
+      <legend>Sort by</legend>
+      <label><input type="radio" name="sort" value="share" checked> Closest to your color</label>
+      <label><input type="radio" name="sort" value="overall"> Brightest overall</label>
+      <label><input type="radio" name="sort" value="color"> Brightest in your color</label>
+    </fieldset>
     <div class="results" id="results" hidden></div>
     <div class="finder-foot" id="finder-foot" hidden>
       <button type="button" class="more" id="more">Show more</button>
@@ -742,12 +784,14 @@
     const foot = document.getElementById("finder-foot");
     const more = document.getElementById("more");
     const presets = [...document.querySelectorAll(".preset")];
+    const sortControl = document.getElementById("sort");
     const dialog = document.getElementById("work-dialog");
     const dialogBody = document.getElementById("dialog-body");
 
     const seen = new Map();    // search results by id, so a selected work shows at once
     const details = new Map(); // full details from /api/work, by id
     let current = null;        // the search on screen
+    let sortMode = "share";    // "share", "overall" or "color"
     let openId = null;         // the work in the dialog
     let workEntryPushed = false; // whether closing the dialog should go back a history entry
     let leavingWork = false;     // the dialog closed and the browser is still stepping back
@@ -798,6 +842,29 @@
       statusLine.append(document.createTextNode(message));
     }
 
+    // Perceived lightness (CIE L*) of a color, from 0 for black to 100 for white.
+    function lightness(hex) {
+      const [r, g, b] = [1, 3, 5]
+        .map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+        .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      return y > 216 / 24389 ? 116 * Math.cbrt(y) - 16 : (24389 / 27) * y;
+    }
+
+    // Average lightness of palette colors, weighted by how much of the image each covers.
+    function averageLightness(colors) {
+      const total = colors.reduce((sum, c) => sum + c.percent, 0);
+      return total ? colors.reduce((sum, c) => sum + lightness(c.color) * c.percent, 0) / total : null;
+    }
+
+    function withBrightness(work, matched) {
+      return {
+        ...work,
+        overall: averageLightness(work.colors),
+        inColor: averageLightness(work.colors.filter((c) => matched.has(c.color))),
+      };
+    }
+
     function fillStrip(strip, colors) {
       for (const c of colors) {
         const seg = el("i");
@@ -832,13 +899,37 @@
       strip.setAttribute("aria-hidden", "true");
       fillStrip(strip, work.colors.slice(0, 8));
 
+      link.brightLine = el("p", "result-bright");
       link.append(
         el("p", "result-title", work.title),
         el("p", "result-meta", [work.artist, work.dated].filter(Boolean).join(" · ")),
         strip,
         el("p", "result-share", `${Math.max(1, Math.round(work.share * 100))}% close to your color`),
+        link.brightLine,
       );
       return link;
+    }
+
+    // Exhibition works stay first, each group in the chosen order. Cards are made once and
+    // moved, so images that have loaded stay loaded.
+    function renderResults() {
+      if (!current) return;
+      const value = { share: (w) => w.share, overall: (w) => w.overall, color: (w) => w.inColor }[sortMode];
+      const order = (list) => [...list].sort((a, b) => (value(b) ?? -1) - (value(a) ?? -1));
+      const cardFor = (work, inExhibition) => {
+        work.card = work.card || card(work, inExhibition);
+        const brightness = sortMode === "overall" ? work.overall : sortMode === "color" ? work.inColor : null;
+        work.card.brightLine.hidden = brightness == null;
+        if (brightness != null) {
+          const what = sortMode === "overall" ? "Overall brightness" : "Brightness of your color";
+          work.card.brightLine.textContent = `${what}: ${Math.round(brightness)} of 100`;
+        }
+        return work.card;
+      };
+      results.replaceChildren(
+        ...order(current.ours).map((w) => cardFor(w, true)),
+        ...order(current.works).map((w) => cardFor(w, false)),
+      );
     }
 
     // Exhibition works whose palettes include one of the colors the search matched.
@@ -862,14 +953,15 @@
         search.page = data.page;
         search.pages = data.pages;
         if (page === 1) {
-          results.replaceChildren();
-          search.ours = exhibitionMatches(data.query.colors);
-          search.ours.forEach((work) => results.append(card(work, true)));
+          search.matched = new Set(data.query.colors);
+          search.ours = exhibitionMatches(data.query.colors).map((w) => withBrightness(w, search.matched));
+          search.works = [];
         }
         data.results.filter((work) => !exhibitionById.has(work.id)).forEach((work) => {
           seen.set(work.id, work);
-          results.append(card(work, false));
+          search.works.push(withBrightness(work, search.matched));
         });
+        renderResults();
 
         // The API search only covers works shown at full size, so restricted exhibition works add to its count.
         const total = data.total + search.ours.filter((w) => w.level !== 0).length;
@@ -881,11 +973,12 @@
         }
         results.hidden = !results.children.length;
         foot.hidden = results.hidden;
+        sortControl.hidden = results.hidden;
         more.hidden = search.page >= search.pages;
       } catch (err) {
         if (search !== current) return;
         setStatus(err.message === "Failed to fetch" ? "Couldn't reach the search. Check your connection and try again." : err.message);
-        if (page === 1) { results.hidden = true; foot.hidden = true; }
+        if (page === 1) { results.hidden = true; foot.hidden = true; sortControl.hidden = true; }
       } finally {
         more.disabled = false;
       }
@@ -893,7 +986,7 @@
 
     // mode: "push" adds a history entry, "replace" updates the current one, "none" leaves history alone.
     function search(color, label, mode = "push") {
-      current = { color, label: label || color, page: 0, pages: 0, ours: [] };
+      current = { color, label: label || color, page: 0, pages: 0, ours: [], works: [], matched: new Set() };
       picker.value = color;
       if (!text.value.trim()) text.value = current.label;
       presets.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.color === color)));
@@ -901,6 +994,7 @@
       back.hidden = false;
       results.hidden = true;
       foot.hidden = true;
+      sortControl.hidden = true;
       setStatus("Searching…", color);
       // Each search gets its own history entry, so the browser's Back button returns to the exhibition.
       const state = { color, label: current.label };
@@ -916,6 +1010,7 @@
       results.replaceChildren();
       results.hidden = true;
       foot.hidden = true;
+      sortControl.hidden = true;
       back.hidden = true;
       setStatus("");
       exhibition.hidden = false;
@@ -1106,6 +1201,10 @@
       search(button.dataset.color, text.value);
     }));
     more.addEventListener("click", () => load(current.page + 1));
+    sortControl.addEventListener("change", (event) => {
+      sortMode = event.target.value;
+      renderResults();
+    });
     back.addEventListener("click", () => showExhibition());
 
     window.addEventListener("popstate", (event) => {
