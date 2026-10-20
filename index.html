@@ -226,6 +226,26 @@
   }
   .artist span { font-weight: 400; color: var(--muted); }
 
+  /* The painting, hung on a wall-colored panel. Restricted images stay at the museum's 256px limit. */
+  .artwork { margin: 0; display: grid; gap: 0.5rem; }
+  .wall {
+    background: var(--surface);
+    padding: clamp(1.5rem, 5vw, 3rem);
+    display: grid;
+    place-items: center;
+  }
+  .wall img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.18), 0 14px 28px -14px rgb(0 0 0 / 0.35);
+  }
+  .artwork figcaption {
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
   /* Palette strip: the museum's own color analysis of each painting */
   .palette { display: grid; gap: 0.4rem; }
   .strip {
@@ -388,6 +408,13 @@
       <div class="when"><span class="year">1960</span></div>
       <div class="node" aria-hidden="true"></div>
       <div class="body">
+        <figure class="artwork">
+          <div class="wall">
+            <img src="https://nrs.harvard.edu/urn-3:HUAM:DDC112564_dynmc/full/!256,256/0/default.jpg" width="77" height="256" alt="A tall, narrow painting: a column of orange stained into bare canvas, deepening to red along its right side.">
+          </div>
+          <figcaption>© Artists Rights Society (ARS), New York · Photo: Harvard Art Museums</figcaption>
+        </figure>
+
         <div class="work-head">
           <h2>Four-Three-Eight (Orange Column)</h2>
           <p class="artist">Morris Louis <span>· American, 1912–1962</span></p>
@@ -439,6 +466,13 @@
       <div class="when"><span class="year">1970</span></div>
       <div class="node" aria-hidden="true"></div>
       <div class="body">
+        <figure class="artwork">
+          <div class="wall">
+            <img src="https://nrs.harvard.edu/urn-3:HUAM:DDC105909_dynmc/full/!1600,1600/0/default.jpg" srcset="https://nrs.harvard.edu/urn-3:HUAM:DDC105909_dynmc/full/!800,800/0/default.jpg 800w, https://nrs.harvard.edu/urn-3:HUAM:DDC105909_dynmc/full/!1600,1600/0/default.jpg 1600w" sizes="(max-width: 640px) 90vw, 40rem" width="1600" height="747" loading="lazy" alt="A painting of predominately orange shapes on a white canvas with a grid of penciled in lines.">
+          </div>
+          <figcaption>© Joan Snyder · Photo: Harvard Art Museums</figcaption>
+        </figure>
+
         <div class="work-head">
           <h2>Summer Orange</h2>
           <p class="artist">Joan Snyder <span>· American, born 1940</span></p>
@@ -491,6 +525,13 @@
       <div class="when"><span class="year">1987</span></div>
       <div class="node" aria-hidden="true"></div>
       <div class="body">
+        <figure class="artwork">
+          <div class="wall">
+            <img src="https://nrs.harvard.edu/urn-3:HUAM:73624_dynmc/full/!256,256/0/default.jpg" width="125" height="256" loading="lazy" alt="A tall painting of saturated yellow and orange, with a large red form in the center and a thin blue line at the left edge.">
+          </div>
+          <figcaption>© Helen Frankenthaler / Artists Rights Society (ARS), New York · Photo: Harvard Art Museums</figcaption>
+        </figure>
+
         <div class="work-head">
           <h2>Rex</h2>
           <p class="artist">Helen Frankenthaler <span>· American, 1928–2011</span></p>
@@ -542,7 +583,7 @@
   </main>
 
   <footer>
-    <p>Names, dates, collection details, palettes and gallery locations come from the Harvard Art Museums collection website (October 2026).</p>
+    <p>Names, dates, collection details, palettes and gallery locations come from the Harvard Art Museums collection website (October 2026). Images load from Harvard's public image service. Works with image restrictions are shown no larger than 256 pixels, as the museum requires.</p>
   </footer>
 </div>
 </body>
