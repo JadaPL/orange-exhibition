@@ -852,9 +852,12 @@
     }
 
     // Average lightness of palette colors, weighted by how much of the image each covers.
+    // Colors covering a sliver of the image round to 0%, so those get a plain average.
     function averageLightness(colors) {
+      if (!colors.length) return null;
       const total = colors.reduce((sum, c) => sum + c.percent, 0);
-      return total ? colors.reduce((sum, c) => sum + lightness(c.color) * c.percent, 0) / total : null;
+      if (!total) return colors.reduce((sum, c) => sum + lightness(c.color), 0) / colors.length;
+      return colors.reduce((sum, c) => sum + lightness(c.color) * c.percent, 0) / total;
     }
 
     function withBrightness(work, matched) {
