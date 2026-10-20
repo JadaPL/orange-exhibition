@@ -609,7 +609,8 @@
     font-variant-numeric: tabular-nums;
   }
   .page-num[aria-current="page"] { background: var(--ink); color: var(--bg); }
-  .page-num:hover:not(:disabled) {
+  .page-num:hover:not(:disabled),
+  .page-step:hover:not(:disabled) {
     background: var(--page-hover-bg);
     border-color: var(--page-hover-bg);
     color: var(--page-hover-fg);
@@ -1000,11 +1001,11 @@
         if (p === current.page) b.setAttribute("aria-current", "page");
         return b;
       });
-      const controls = [
-        button("Previous page", () => showPage(current.page - 1), current.page <= 1),
-        ...numbers,
-        button("Next page", () => showPage(current.page + 1), current.page >= pages),
-      ];
+      const previous = button("Previous page", () => showPage(current.page - 1), current.page <= 1);
+      const next = button("Next page", () => showPage(current.page + 1), current.page >= pages);
+      previous.classList.add("page-step");
+      next.classList.add("page-step");
+      const controls = [previous, ...numbers, next];
       if (pages > 7) {
         // Any page number, for jumps past the ones shown.
         const jump = el("form", "page-jump");
