@@ -57,6 +57,7 @@
   }
 
   *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   :root { color-scheme: light; }
   body {
     margin: 0;
@@ -443,6 +444,38 @@
     outline: 2px solid var(--orange);
     outline-offset: 2px;
   }
+  .status-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+  }
+  .back {
+    border: 0;
+    background: none;
+    padding: 0.25rem 0;
+    color: var(--orange-ink);
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.875rem;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+  .back:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+  .result-tag {
+    justify-self: start;
+    margin: 0;
+    padding: 0.15rem 0.5rem;
+    background: var(--button-bg);
+    color: var(--button-fg);
+    font-family: var(--font-display);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
   .search-status {
     margin: 0;
     font-family: var(--font-display);
@@ -597,7 +630,10 @@
       <button type="button" class="preset" style="--c:#969696" data-color="#969696">Grey</button>
       <button type="button" class="preset" style="--c:#191919" data-color="#191919">Black</button>
     </div>
-    <p class="search-status" id="search-status" role="status" aria-live="polite"></p>
+    <div class="status-row">
+      <p class="search-status" id="search-status" role="status" aria-live="polite"></p>
+      <button type="button" class="back" id="back" hidden>Back to the exhibition</button>
+    </div>
     <div class="results" id="results" hidden></div>
     <div class="finder-foot" id="finder-foot" hidden>
       <button type="button" class="more" id="more">Show more</button>
@@ -605,18 +641,21 @@
     </div>
   </section>
 
+  <div id="exhibition">
   <!-- Overview drawn to scale -->
 {{SCALE}}
 
   <main class="timeline">
 {{ENTRIES}}
   </main>
+  </div>
 
   <footer>
     <p>Names, dates, collection details, palettes and gallery locations come from the Harvard Art Museums collection website (October 2026). Images load from Harvard's public image service. Works with image restrictions are shown no larger than 256 pixels, as the museum requires.</p>
   </footer>
 </div>
 
+<script type="application/json" id="exhibition-data">{{WORKS_JSON}}</script>
 <script>
   (() => {
     // On Vercel the search runs on the same site; the GitHub Pages copy calls the Vercel one.
@@ -624,10 +663,14 @@
       ? "/api/search"
       : "https://orange-exhibition.vercel.app/api/search";
 
+    const exhibition = document.getElementById("exhibition");
+    const exhibitionWorks = JSON.parse(document.getElementById("exhibition-data").textContent);
+    const exhibitionIds = new Set(exhibitionWorks.map((w) => w.id));
     const form = document.getElementById("color-search");
     const picker = document.getElementById("color-picker");
     const text = document.getElementById("color-text");
     const statusLine = document.getElementById("search-status");
+    const back = document.getElementById("back");
     const results = document.getElementById("results");
     const foot = document.getElementById("finder-foot");
     const more = document.getElementById("more");
@@ -660,7 +703,7 @@
       statusLine.append(document.createTextNode(message));
     }
 
-    function card(work) {
+    function card(work, inExhibition) {
       const link = document.createElement("a");
       link.className = "result";
       link.href = work.url;
@@ -672,8 +715,16 @@
       const img = document.createElement("img");
       img.src = work.image;
       img.loading = "lazy";
-      img.alt = `${work.title} by ${work.artist}`;
+      img.alt = work.alt || `${work.title} by ${work.artist}`;
       thumb.append(img);
+      link.append(thumb);
+
+      if (inExhibition) {
+        const tag = document.createElement("p");
+        tag.className = "result-tag";
+        tag.textContent = "In this exhibition";
+        link.append(tag);
+      }
 
       const title = document.createElement("p");
       title.className = "result-title";
@@ -686,7 +737,7 @@
       const strip = document.createElement("div");
       strip.className = "mini-strip";
       strip.setAttribute("aria-hidden", "true");
-      for (const c of work.colors) {
+      for (const c of work.colors.slice(0, 8)) {
         const seg = document.createElement("i");
         seg.style.flexGrow = c.percent;
         seg.style.background = c.color;
@@ -697,30 +748,50 @@
       share.className = "result-share";
       share.textContent = `${Math.max(1, Math.round(work.share * 100))}% close to your color`;
 
-      link.append(thumb, title, meta, strip, share);
+      link.append(title, meta, strip, share);
       return link;
     }
 
+    // Exhibition works whose palettes include one of the colors the search matched.
+    function exhibitionMatches(colors) {
+      const wanted = new Set(colors);
+      return exhibitionWorks
+        .filter((w) => w.image)
+        .map((w) => ({ ...w, share: w.colors.filter((c) => wanted.has(c.color)).reduce((sum, c) => sum + c.percent, 0) }))
+        .filter((w) => w.share > 0)
+        .sort((a, b) => b.share - a.share);
+    }
+
     async function load(page) {
+      const search = current;
       more.disabled = true;
       try {
-        const response = await fetch(`${API}?color=${encodeURIComponent(current.color)}&page=${page}`);
+        const response = await fetch(`${API}?color=${encodeURIComponent(search.color)}&page=${page}`);
         const data = await response.json();
+        if (search !== current) return; // a newer search started meanwhile
         if (!response.ok) throw new Error(data.error || "Search isn't working right now. Try again in a minute.");
-        current.page = data.page;
-        current.pages = data.pages;
-        if (page === 1) results.replaceChildren();
-        data.results.forEach((work) => results.append(card(work)));
-        const count = data.total.toLocaleString();
-        if (!data.total) {
-          setStatus("No works with images use colors close to this one. Try a swatch or a nearby color.", current.color);
+        search.page = data.page;
+        search.pages = data.pages;
+        if (page === 1) {
+          results.replaceChildren();
+          search.ours = exhibitionMatches(data.query.colors);
+          search.ours.forEach((work) => results.append(card(work, true)));
+        }
+        data.results.filter((work) => !exhibitionIds.has(work.id)).forEach((work) => results.append(card(work, false)));
+
+        // The API search only covers works shown at full size, so restricted exhibition works add to its count.
+        const total = data.total + search.ours.filter((w) => w.level !== 0).length;
+        if (!total) {
+          setStatus("No works with images use colors close to this one. Try a swatch or a nearby color.", search.color);
         } else {
-          setStatus(`${count} ${data.total === 1 ? "work uses" : "works use"} colors close to ${current.label}`, current.color);
+          const ours = search.ours.length ? `, including ${search.ours.length} from this exhibition` : "";
+          setStatus(`${total.toLocaleString()} ${total === 1 ? "work uses" : "works use"} colors close to ${search.label}${ours}`, search.color);
         }
         results.hidden = !results.children.length;
         foot.hidden = results.hidden;
-        more.hidden = current.page >= current.pages;
+        more.hidden = search.page >= search.pages;
       } catch (err) {
+        if (search !== current) return;
         setStatus(err.message === "Failed to fetch" ? "Couldn't reach the search. Check your connection and try again." : err.message);
         if (page === 1) { results.hidden = true; foot.hidden = true; }
       } finally {
@@ -728,22 +799,46 @@
       }
     }
 
-    function search(color, label) {
-      current = { color, label: label || color, page: 0, pages: 0 };
+    function search(color, label, remember = true) {
+      current = { color, label: label || color, page: 0, pages: 0, ours: [] };
       picker.value = color;
+      if (!text.value.trim()) text.value = current.label;
       presets.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.color === color)));
+      exhibition.hidden = true;
+      back.hidden = false;
+      results.hidden = true;
+      foot.hidden = true;
       setStatus("Searching…", color);
+      // Each search gets its own history entry, so the browser's Back button returns to the exhibition.
+      const state = { color, label: current.label };
+      const hash = "#color=" + color.slice(1);
+      if (remember) history.pushState(state, "", hash);
+      else history.replaceState(state, "", hash);
       load(1);
+    }
+
+    function showExhibition(remember = true) {
+      current = null;
+      text.value = "";
+      presets.forEach((b) => b.setAttribute("aria-pressed", "false"));
+      results.replaceChildren();
+      results.hidden = true;
+      foot.hidden = true;
+      back.hidden = true;
+      setStatus("");
+      exhibition.hidden = false;
+      if (remember) history.pushState(null, "", location.pathname + location.search);
     }
 
     form.addEventListener("submit", (event) => {
       event.preventDefault();
-      const color = parseColor(text.value) || (text.value.trim() ? null : picker.value);
+      const typed = text.value.trim();
+      const color = typed ? parseColor(typed) : picker.value;
       if (!color) {
-        setStatus(`“${text.value.trim()}” isn't a color I recognize. Try a name like teal, or a code like #e8590c.`);
+        setStatus(`“${typed}” isn't a color I recognize. Try a name like teal, or a code like #e8590c.`);
         return;
       }
-      search(color, text.value.trim() || color);
+      search(color, typed || color);
     });
     picker.addEventListener("change", () => {
       text.value = picker.value;
@@ -751,9 +846,22 @@
     });
     presets.forEach((button) => button.addEventListener("click", () => {
       text.value = button.textContent.toLowerCase();
-      search(button.dataset.color, button.textContent.toLowerCase());
+      search(button.dataset.color, text.value);
     }));
     more.addEventListener("click", () => load(current.page + 1));
+    back.addEventListener("click", () => showExhibition());
+    window.addEventListener("popstate", (event) => {
+      if (event.state && event.state.color) {
+        text.value = event.state.label;
+        search(event.state.color, event.state.label, false);
+      } else {
+        showExhibition(false);
+      }
+    });
+
+    // A link like …#color=e8590c opens straight into that search.
+    const linked = location.hash.match(/^#color=([0-9a-f]{6})$/i);
+    if (linked) search("#" + linked[1].toLowerCase(), null, false);
   })();
 </script>
 </body>

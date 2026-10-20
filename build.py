@@ -53,27 +53,32 @@ def artist_of(obj):
     return person.get("displayname") or person.get("name") or "Unknown artist", detail
 
 
-def image_of(obj, work):
-    """Return the image markup, keeping to the museum's size limit, or "" if none may be shown.
+def image_source(obj, work):
+    """Return (src, level, image record) for the work's main image, or None if none may be shown.
 
-    The API leaves out images of restricted works (level 1), which the museum allows at 256px,
-    so works.json can supply the image ID for those as "image".
+    src(px) is the image's address at most px on its longest side. The API leaves out images of
+    restricted works (level 1), which the museum allows at 256px, so works.json can supply the
+    image ID for those as "image".
     """
     level = obj.get("imagepermissionlevel", 2)
     images = sorted(obj.get("images") or [], key=lambda im: im.get("displayorder") or 99)
     image = images[0] if images else {}
     base = image.get("baseimageurl") or obj.get("primaryimageurl") or work.get("image") or ""
     if level >= 2 or not base:
-        return ""
-    urn = base.rsplit("/", 1)[-1]
-    parts = urn.split(":", 2)
+        return None
+    parts = base.rsplit("/", 1)[-1].split(":", 2)
     if len(parts) != 3 or parts[0].lower() != "urn-3":
-        return ""
+        return None
     urn = "urn-3:HUAM:" + parts[2]
+    return (lambda px: f"{IMAGES}{urn}/full/!{px},{px}/0/default.jpg"), level, image
 
-    def src(px):
-        return f"{IMAGES}{urn}/full/!{px},{px}/0/default.jpg"
 
+def image_of(obj, work):
+    """Return the image markup, keeping to the museum's size limit, or "" if none may be shown."""
+    source = image_source(obj, work)
+    if not source:
+        return ""
+    src, level, image = source
     limit = RESTRICTED_PX if level == 1 else FULL_PX
     width, height = image.get("width") or 0, image.get("height") or 0
     size = ""
@@ -177,6 +182,28 @@ def entry_of(work, obj, anchor):
 '''
 
 
+def exhibition_data(items):
+    """The works as JSON for the color search, which lists matching exhibition works first."""
+    works = []
+    for work, obj, _ in items:
+        source = image_source(obj, work)
+        artist = artist_of(obj)[0]
+        title = obj.get("title") or "Untitled"
+        works.append({
+            "id": work["id"],
+            "level": obj.get("imagepermissionlevel", 2),
+            "title": title,
+            "artist": artist,
+            "dated": obj.get("dated") or "",
+            "url": obj.get("url") or f"https://harvardartmuseums.org/collections/object/{work['id']}",
+            "image": source[0](RESTRICTED_PX if source[1] == 1 else 480) if source else None,
+            "alt": work.get("alt") or (source[2].get("alttext") if source else None) or f"{title} by {artist}",
+            "colors": [{"color": c["color"], "percent": round(c["percent"], 3)} for c in obj.get("colors") or []],
+        })
+    # Keep "</" out of the inline script so a title can never close the tag.
+    return json.dumps(works, ensure_ascii=False).replace("</", "<\\/")
+
+
 def scale_of(items):
     """The overview strip, drawn to scale with ticks on round years."""
     years = [obj.get("datebegin") for _, obj, _ in items if obj.get("datebegin")]
@@ -232,6 +259,7 @@ def main():
     page = (ROOT / "template.html").read_text(encoding="utf-8")
     page = page.replace("{{SCALE}}", scale_of(items))
     page = page.replace("{{ENTRIES}}", "\n".join(entry_of(w, o, a) for w, o, a in items))
+    page = page.replace("{{WORKS_JSON}}", exhibition_data(items))
 
     out = ROOT / "site"
     out.mkdir(exist_ok=True)

@@ -30,6 +30,8 @@ A timeline exhibition of abstract paintings from the [Harvard Art Museums](https
 
 The search bar near the top of the page finds works in the Harvard Art Museums collection that use a color. Pick a swatch, choose any color with the color picker, or type a name like `teal` or a code like `#e8590c`. Results open on the museum's website.
 
+While you search, the exhibition timeline is hidden. Works from this exhibition that use colors close to the one you searched appear first, marked "In this exhibition". **Back to the exhibition**, or the browser's Back button, returns to the timeline. A link ending in `#color=e8590c` opens straight into that search.
+
 The search runs in `api/search.py`, a Vercel server function at `/api/search`. It calls the Harvard Art Museums API with the `HARVARD_API_KEY` environment variable on Vercel, so the key never reaches visitors' browsers. The GitHub Pages copy of the site uses the same Vercel search.
 
 - The museum records each work's main colors on a palette whose channels step by 25. The search looks for the closest palette color and its neighbors.
