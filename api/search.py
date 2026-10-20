@@ -5,9 +5,10 @@ HARVARD_API_KEY environment variable, so the key never reaches the browser.
 
   /api/search?color=%23e8590c   works whose palette has a color close to this one
   &spread=0                     only the single closest museum color (default 1, up to 2)
+  &batch=2                      the next MAX_WORKS matches, by views on the museum's website
 
-It gathers every match, up to MAX_WORKS, so the page can sort all of them. When more works
-match, it keeps the most viewed on the museum's website. Only works the museum allows at any
+It gathers a batch of up to MAX_WORKS matches, so the page can sort all of them. Batches
+follow the most viewed on the museum's website: batch 1 is the most viewed, and so on. Only works the museum allows at any
 size (imagepermissionlevel 0) are returned, because the API leaves out images of restricted works.
 """
 
@@ -26,6 +27,7 @@ IMAGES = "https://nrs.harvard.edu/"
 PAGE_SIZE = 100  # the most the API returns per request
 MAX_WORKS = 2000  # works gathered per search
 WORKERS = 10      # API requests made at the same time
+MAX_DEPTH = 1_000_000  # how far into the matches the API can page
 FIELDS = "objectid,title,dated,people,primaryimageurl,colors,url"
 
 
@@ -94,8 +96,13 @@ def search(query, key):
     color = (query.get("color") or [""])[0].strip().lstrip("#")
     try:
         spread = max(0, min(2, int((query.get("spread") or ["1"])[0])))
+        batch = max(1, int((query.get("batch") or ["1"])[0]))
     except ValueError:
-        spread = 1
+        spread, batch = 1, 1
+    pages_per_batch = MAX_WORKS // PAGE_SIZE
+    first_page = (batch - 1) * pages_per_batch + 1
+    if (first_page - 1) * PAGE_SIZE >= MAX_DEPTH:
+        return 400, {"error": f"The museum's search only reaches its first {MAX_DEPTH:,} matches."}
     if not re.fullmatch(r"[0-9a-fA-F]{6}", color):
         return 400, {"error": "Choose a color, for example #e8590c."}
 
@@ -107,13 +114,13 @@ def search(query, key):
     matches = lambda c: (c.get("color") or "").lower() in wanted
 
     try:
-        first = fetch_page(params, 1)
+        first = fetch_page(params, first_page)
         info = first.get("info") or {}
-        pages = min(info.get("pages") or 1, -(-MAX_WORKS // PAGE_SIZE))
+        last_page = min(info.get("pages") or 0, first_page + pages_per_batch - 1, MAX_DEPTH // PAGE_SIZE)
         records = list(first.get("records") or [])
-        if pages > 1:
+        if last_page > first_page:
             with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-                for data in pool.map(lambda page: fetch_page(params, page), range(2, pages + 1)):
+                for data in pool.map(lambda page: fetch_page(params, page), range(first_page + 1, last_page + 1)):
                     records.extend(data.get("records") or [])
     except urllib.error.HTTPError as err:
         return 502, {"error": f"The museum's collection search returned an error (HTTP {err.code}). Try again in a minute."}
@@ -128,8 +135,9 @@ def search(query, key):
             results.append(result)
     # Closest first; ties keep the API's most-viewed order.
     results.sort(key=lambda r: r["share"], reverse=True)
-    return 200, {"query": {"color": colors[0], "colors": colors}, "total": info.get("totalrecords", 0),
-                 "limit": MAX_WORKS, "results": results}
+    total = info.get("totalrecords", 0)
+    return 200, {"query": {"color": colors[0], "colors": colors}, "total": total, "limit": MAX_WORKS,
+                 "batch": batch, "batches": max(1, -(-min(total, MAX_DEPTH) // MAX_WORKS)), "results": results}
 
 
 class handler(BaseHTTPRequestHandler):
