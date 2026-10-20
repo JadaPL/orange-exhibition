@@ -1018,7 +1018,7 @@
         input.max = String(pages);
         input.inputMode = "numeric";
         input.placeholder = String(current.page);
-        const go = el("button", "more", "Go");
+        const go = el("button", "more page-step", "Go");
         go.type = "submit";
         jump.append(label, input, go);
         jump.addEventListener("submit", (event) => {
