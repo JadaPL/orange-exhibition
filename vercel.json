@@ -1,5 +1,8 @@
 {
   "framework": null,
   "buildCommand": "python3 build.py",
-  "outputDirectory": "site"
+  "outputDirectory": "site",
+  "functions": {
+    "api/*.py": { "maxDuration": 30 }
+  }
 }

@@ -5,24 +5,27 @@ HARVARD_API_KEY environment variable, so the key never reaches the browser.
 
   /api/search?color=%23e8590c   works whose palette has a color close to this one
   &spread=0                     only the single closest museum color (default 1, up to 2)
-  &page=2                       the next page of results
 
-Only works the museum allows at any size (imagepermissionlevel 0) are returned,
-because the API leaves out images of restricted works.
+It gathers every match, up to MAX_WORKS, so the page can sort all of them. When more works
+match, it keeps the most viewed on the museum's website. Only works the museum allows at any
+size (imagepermissionlevel 0) are returned, because the API leaves out images of restricted works.
 """
 
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler
 
 API = "https://api.harvardartmuseums.org/object"
 IMAGES = "https://nrs.harvard.edu/"
-PAGE_SIZE = 48
-MAX_PAGE = 50
+PAGE_SIZE = 100  # the most the API returns per request
+MAX_WORKS = 2000  # works gathered per search
+WORKERS = 10      # API requests made at the same time
 FIELDS = "objectid,title,dated,people,primaryimageurl,colors,url"
 
 
@@ -47,6 +50,17 @@ def fetch(params):
     request = urllib.request.Request(url, headers={"User-Agent": "orange-exhibition-search"})
     with urllib.request.urlopen(request, timeout=20) as response:
         return json.load(response)
+
+
+def fetch_page(params, page):
+    """One page of results, retried once if the API is busy."""
+    try:
+        return fetch({**params, "page": page})
+    except urllib.error.HTTPError as err:
+        if err.code not in (429, 500, 502, 503, 504):
+            raise
+        time.sleep(1)
+        return fetch({**params, "page": page})
 
 
 def thumbnail(base):
@@ -79,14 +93,13 @@ def search(query, key):
     """Return (status, body) for the parsed query string."""
     color = (query.get("color") or [""])[0].strip().lstrip("#")
     try:
-        page = max(1, min(MAX_PAGE, int((query.get("page") or ["1"])[0])))
         spread = max(0, min(2, int((query.get("spread") or ["1"])[0])))
     except ValueError:
-        page, spread = 1, 1
+        spread = 1
     if not re.fullmatch(r"[0-9a-fA-F]{6}", color):
         return 400, {"error": "Choose a color, for example #e8590c."}
 
-    params = {"apikey": key, "hasimage": 1, "size": PAGE_SIZE, "page": page, "fields": FIELDS,
+    params = {"apikey": key, "hasimage": 1, "size": PAGE_SIZE, "fields": FIELDS,
               "sort": "totalpageviews", "sortorder": "desc", "q": "imagepermissionlevel:0"}
     colors = nearby_colors(museum_color(color.lower()), spread)
     params["color"] = "|".join(colors)
@@ -94,17 +107,29 @@ def search(query, key):
     matches = lambda c: (c.get("color") or "").lower() in wanted
 
     try:
-        data = fetch(params)
+        first = fetch_page(params, 1)
+        info = first.get("info") or {}
+        pages = min(info.get("pages") or 1, -(-MAX_WORKS // PAGE_SIZE))
+        records = list(first.get("records") or [])
+        if pages > 1:
+            with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+                for data in pool.map(lambda page: fetch_page(params, page), range(2, pages + 1)):
+                    records.extend(data.get("records") or [])
     except urllib.error.HTTPError as err:
         return 502, {"error": f"The museum's collection search returned an error (HTTP {err.code}). Try again in a minute."}
     except (urllib.error.URLError, TimeoutError):
         return 502, {"error": "The museum's collection search didn't respond. Try again in a minute."}
 
-    info = data.get("info") or {}
-    results = [r for r in (result_of(rec, matches) for rec in data.get("records") or []) if r["image"]]
+    results, ids = [], set()
+    for record in records:
+        result = result_of(record, matches)
+        if result["image"] and result["id"] not in ids:
+            ids.add(result["id"])
+            results.append(result)
+    # Closest first; ties keep the API's most-viewed order.
     results.sort(key=lambda r: r["share"], reverse=True)
-    return 200, {"query": {"color": colors[0], "colors": colors}, "total": info.get("totalrecords", 0), "page": page,
-                 "pages": min(info.get("pages", 0), MAX_PAGE), "results": results}
+    return 200, {"query": {"color": colors[0], "colors": colors}, "total": info.get("totalrecords", 0),
+                 "limit": MAX_WORKS, "results": results}
 
 
 class handler(BaseHTTPRequestHandler):

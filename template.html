@@ -792,6 +792,7 @@
     const details = new Map(); // full details from /api/work, by id
     let current = null;        // the search on screen
     let sortMode = "share";    // "share", "overall" or "color"
+    const PAGE = 48;           // works shown at first, and added by Show more
     let openId = null;         // the work in the dialog
     let workEntryPushed = false; // whether closing the dialog should go back a history entry
     let leavingWork = false;     // the dialog closed and the browser is still stepping back
@@ -840,6 +841,15 @@
         statusLine.append(chip);
       }
       statusLine.append(document.createTextNode(message));
+    }
+
+    // The museum's palette steps each channel by 25 (0, 25, … 250). Searching the rounded color
+    // lets similar colors share one cached search.
+    function museumColor(hex) {
+      return "#" + [1, 3, 5]
+        .map((i) => Math.min(250, Math.round(parseInt(hex.slice(i, i + 2), 16) / 25) * 25))
+        .map((c) => c.toString(16).padStart(2, "0"))
+        .join("");
     }
 
     // Perceived lightness (CIE L*) of a color, from 0 for black to 100 for white.
@@ -913,8 +923,8 @@
       return link;
     }
 
-    // Exhibition works stay first, each group in the chosen order. Cards are made once and
-    // moved, so images that have loaded stay loaded.
+    // Every match is sorted, then the first current.shown appear. Exhibition works stay first,
+    // in the chosen order. Cards are made once and moved, so images that have loaded stay loaded.
     function renderResults() {
       if (!current) return;
       const value = { share: (w) => w.share, overall: (w) => w.overall, color: (w) => w.inColor }[sortMode];
@@ -931,8 +941,9 @@
       };
       results.replaceChildren(
         ...order(current.ours).map((w) => cardFor(w, true)),
-        ...order(current.works).map((w) => cardFor(w, false)),
+        ...order(current.works).slice(0, current.shown).map((w) => cardFor(w, false)),
       );
+      more.hidden = current.shown >= current.works.length;
     }
 
     // Exhibition works whose palettes include one of the colors the search matched.
@@ -945,24 +956,18 @@
         .sort((a, b) => b.share - a.share);
     }
 
-    async function load(page) {
+    async function load() {
       const search = current;
-      more.disabled = true;
       try {
-        const response = await fetch(`${SEARCH_API}?color=${encodeURIComponent(search.color)}&page=${page}`);
+        const response = await fetch(`${SEARCH_API}?color=${encodeURIComponent(museumColor(search.color))}`);
         const data = await response.json();
         if (search !== current) return; // a newer search started meanwhile
         if (!response.ok) throw new Error(data.error || "Search isn't working right now. Try again in a minute.");
-        search.page = data.page;
-        search.pages = data.pages;
-        if (page === 1) {
-          search.matched = new Set(data.query.colors);
-          search.ours = exhibitionMatches(data.query.colors).map((w) => withBrightness(w, search.matched));
-          search.works = [];
-        }
-        data.results.filter((work) => !exhibitionById.has(work.id)).forEach((work) => {
+        search.matched = new Set(data.query.colors);
+        search.ours = exhibitionMatches(data.query.colors).map((w) => withBrightness(w, search.matched));
+        search.works = data.results.filter((work) => !exhibitionById.has(work.id)).map((work) => {
           seen.set(work.id, work);
-          search.works.push(withBrightness(work, search.matched));
+          return withBrightness(work, search.matched);
         });
         renderResults();
 
@@ -972,24 +977,25 @@
           setStatus("No works with images use colors close to this one. Try a swatch or a nearby color.", search.color);
         } else {
           const ours = search.ours.length ? `, including ${search.ours.length} from this exhibition` : "";
-          setStatus(`${total.toLocaleString()} ${total === 1 ? "work uses" : "works use"} colors close to ${search.label}${ours}`, search.color);
+          const capped = data.total > data.limit
+            ? `. Sorting covers the ${data.limit.toLocaleString()} most viewed on the museum's website.` : "";
+          setStatus(`${total.toLocaleString()} ${total === 1 ? "work uses" : "works use"} colors close to ${search.label}${ours}${capped}`, search.color);
         }
         results.hidden = !results.children.length;
         foot.hidden = results.hidden;
         sortControl.hidden = results.hidden;
-        more.hidden = search.page >= search.pages;
       } catch (err) {
         if (search !== current) return;
         setStatus(err.message === "Failed to fetch" ? "Couldn't reach the search. Check your connection and try again." : err.message);
-        if (page === 1) { results.hidden = true; foot.hidden = true; sortControl.hidden = true; }
-      } finally {
-        more.disabled = false;
+        results.hidden = true;
+        foot.hidden = true;
+        sortControl.hidden = true;
       }
     }
 
     // mode: "push" adds a history entry, "replace" updates the current one, "none" leaves history alone.
     function search(color, label, mode = "push") {
-      current = { color, label: label || color, page: 0, pages: 0, ours: [], works: [], matched: new Set() };
+      current = { color, label: label || color, shown: PAGE, ours: [], works: [], matched: new Set() };
       picker.value = color;
       if (!text.value.trim()) text.value = current.label;
       presets.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.color === color)));
@@ -998,12 +1004,12 @@
       results.hidden = true;
       foot.hidden = true;
       sortControl.hidden = true;
-      setStatus("Searching…", color);
+      setStatus("Searching the collection…", color);
       // Each search gets its own history entry, so the browser's Back button returns to the exhibition.
       const state = { color, label: current.label };
       if (mode === "push") history.pushState(state, "", hashFor(state));
       else if (mode === "replace") history.replaceState(state, "", hashFor(state));
-      load(1);
+      load();
     }
 
     function showExhibition(remember = true) {
@@ -1203,7 +1209,10 @@
       text.value = button.textContent.toLowerCase();
       search(button.dataset.color, text.value);
     }));
-    more.addEventListener("click", () => load(current.page + 1));
+    more.addEventListener("click", () => {
+      current.shown += PAGE;
+      renderResults();
+    });
     sortControl.addEventListener("change", (event) => {
       sortMode = event.target.value;
       renderResults();

@@ -36,7 +36,7 @@ The search bar near the top of the page finds works in the Harvard Art Museums c
 - **Brightest overall**: the brightness of the whole image, brightest first.
 - **Brightest in your color**: the brightness of the shades close to your color in that image, brightest first.
 
-Brightness comes from the museum's color analysis of each work, measured as perceived lightness from 0 (black) to 100 (white) and weighted by how much of the image each color covers. Sorting covers the results loaded so far, and **Show more** adds the next ones in order.
+Brightness comes from the museum's color analysis of each work, measured as perceived lightness from 0 (black) to 100 (white) and weighted by how much of the image each color covers. The sort applies to every matching work, up to 2,000 per search, and the first 48 appear; **Show more** adds the next 48 in the same order. When more than 2,000 works match (common for greys, browns, pinks and black), the search keeps the 2,000 most viewed on the museum's website, and the result line says so.
 
 Select a result to see it laid out like the exhibition entries: the image, name, artist, date, collection, medium, palette, gallery location and a link to the museum's page. The wall label is the Harvard Art Museums' own label text. Many works don't have one, and the page says so. Works from this exhibition show both your wall label and the museum's. **Close**, Esc, or the browser's Back button returns to the results, and each work has its own link, such as `#color=fa7d19&work=323544`.
 
@@ -46,7 +46,7 @@ The search runs in `api/search.py`, a Vercel server function at `/api/search`, a
 
 - The museum records each work's main colors on a palette whose channels step by 25. The search looks for the closest palette color and its neighbors.
 - Only works the museum allows at full size appear, because the API leaves out images of restricted works.
-- Vercel remembers each search for a day, which keeps calls to the museum's API low. The museum limits each key to 2,500 requests a day.
+- A search gathers its matches 100 at a time, so one search can use up to 20 of the museum's API requests. The museum limits each key to 2,500 requests a day. Vercel remembers each search for a day, and the page rounds colors to the museum's palette first, so similar colors share one remembered search.
 
 ## How it works
 
