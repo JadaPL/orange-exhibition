@@ -600,8 +600,25 @@
     font-size: 0.875rem;
   }
   .batch-text { color: var(--muted); font-variant-numeric: tabular-nums; }
-  .pager-text { font-variant-numeric: tabular-nums; min-width: 7.5rem; text-align: center; }
   .more:disabled { opacity: 0.4; cursor: default; }
+  .page-num {
+    min-width: 2.5rem;
+    padding: 0.5rem 0.6rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .page-num[aria-current="page"] { background: var(--ink); color: var(--bg); }
+  .page-gap { color: var(--muted); padding: 0 0.1rem; }
+  .page-jump { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .page-jump input {
+    width: 4.5rem;
+    padding: 0.45rem 0.5rem;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+  }
+  .page-jump input:focus-visible { outline: 2px solid var(--orange); outline-offset: 1px; }
   .finder-note { margin: 0; font-family: var(--font-display); font-size: 0.75rem; color: var(--muted); }
 
   /* ---------- Selected work ---------- */
@@ -949,14 +966,62 @@
       statusLine.closest(".status-row").scrollIntoView({ block: "start" });
     }
 
+    // Page numbers to offer: the first, the last, and two either side of the current page,
+    // with null where more than one page is skipped.
+    function pageNumbers(page, pages) {
+      const keep = new Set([1, pages]);
+      for (let p = page - 2; p <= page + 2; p++) if (p >= 1 && p <= pages) keep.add(p);
+      const list = [];
+      let previous = 0;
+      for (const p of [...keep].sort((a, b) => a - b)) {
+        if (p - previous === 2) list.push(previous + 1);
+        else if (p - previous > 2) list.push(null);
+        list.push(p);
+        previous = p;
+      }
+      return list;
+    }
+
     // The page buttons, and the batch buttons when more than one batch of matches exists.
     function renderControls(count) {
       const pages = Math.max(1, Math.ceil(count / PAGE));
-      pager.replaceChildren(
+      const numbers = pageNumbers(current.page, pages).map((p) => {
+        if (p === null) return el("span", "page-gap", "…");
+        const b = button(String(p), () => showPage(p));
+        b.classList.add("page-num");
+        b.setAttribute("aria-label", `Page ${p}`);
+        if (p === current.page) b.setAttribute("aria-current", "page");
+        return b;
+      });
+      const controls = [
         button("Previous page", () => showPage(current.page - 1), current.page <= 1),
-        el("span", "pager-text", `Page ${current.page} of ${pages}`),
+        ...numbers,
         button("Next page", () => showPage(current.page + 1), current.page >= pages),
-      );
+      ];
+      if (pages > 7) {
+        // Any page number, for jumps past the ones shown.
+        const jump = el("form", "page-jump");
+        const label = el("label", null, "Go to page");
+        label.htmlFor = "page-input";
+        const input = el("input");
+        input.type = "number";
+        input.id = "page-input";
+        input.min = "1";
+        input.max = String(pages);
+        input.inputMode = "numeric";
+        input.placeholder = `1–${pages}`;
+        const go = el("button", "more", "Go");
+        go.type = "submit";
+        jump.append(label, input, go);
+        jump.addEventListener("submit", (event) => {
+          event.preventDefault();
+          const p = Math.round(Number(input.value));
+          if (p >= 1 && p <= pages) showPage(p);
+          else input.select();
+        });
+        controls.push(jump);
+      }
+      pager.replaceChildren(...controls);
       pager.hidden = pages <= 1;
       for (const row of batchRows) {
         row.hidden = current.batches <= 1;
