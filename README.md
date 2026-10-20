@@ -26,6 +26,16 @@ A timeline exhibition of abstract paintings from the [Harvard Art Museums](https
    If the museum restricts the work's image, the API leaves the image out. The museum still allows it at up to 256 pixels, so you can add its image ID as `"image"`. On the museum page, right-click the picture, choose **Copy Image Address**, and use the part that starts with `urn-3:` up to `_dynmc`, for example `"image": "urn-3:HUAM:73624_dynmc"`. The site always shows these images at 256 pixels or smaller.
 3. Click **Commit changes**. About a minute later the work appears on the live site.
 
+## Finding art by color
+
+The search bar near the top of the page finds works in the Harvard Art Museums collection that use a color. Pick a swatch, choose any color with the color picker, or type a name like `teal` or a code like `#e8590c`. Results open on the museum's website.
+
+The search runs in `api/search.py`, a Vercel server function at `/api/search`. It calls the Harvard Art Museums API with the `HARVARD_API_KEY` environment variable on Vercel, so the key never reaches visitors' browsers. The GitHub Pages copy of the site uses the same Vercel search.
+
+- The museum records each work's main colors on a palette whose channels step by 25. The search looks for the closest palette color and its neighbors.
+- Only works the museum allows at full size appear, because the API leaves out images of restricted works.
+- Vercel remembers each search for a day, which keeps calls to the museum's API low. The museum limits each key to 2,500 requests a day.
+
 ## How it works
 
 `build.py` looks up each work in the Harvard Art Museums API, fills `template.html` with the name, artist, date, collection, image, palette and gallery location, and writes the page to `site/`. It reads the API key from the `HARVARD_API_KEY` environment variable, and the key is never included in the published page. The site is built in two places, each with its own copy of the key:
@@ -43,3 +53,4 @@ Images load from Harvard's public image service. Works with museum image restric
 - `template.html`: the page design.
 - `build.py`: builds the page from the API.
 - `vercel.json`: the build settings for Vercel.
+- `api/search.py`: the color search, run by Vercel.
