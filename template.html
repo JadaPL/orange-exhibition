@@ -20,6 +20,8 @@
     --placard: #ffffff;
     --button-bg: #b8460b;
     --button-fg: #ffffff;
+    --page-hover-bg: #b8460b;
+    --page-hover-fg: #fff5e1;
 
     --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
     --font-body: "Source Serif 4", Georgia, "Times New Roman", serif;
@@ -607,6 +609,11 @@
     font-variant-numeric: tabular-nums;
   }
   .page-num[aria-current="page"] { background: var(--ink); color: var(--bg); }
+  .page-num:hover:not(:disabled) {
+    background: var(--page-hover-bg);
+    border-color: var(--page-hover-bg);
+    color: var(--page-hover-fg);
+  }
   .page-gap { color: var(--muted); padding: 0 0.1rem; }
   .page-jump { display: inline-flex; align-items: center; gap: 0.4rem; }
   .page-jump input {
@@ -966,11 +973,11 @@
       statusLine.closest(".status-row").scrollIntoView({ block: "start" });
     }
 
-    // Page numbers to offer: the first, the last, and two either side of the current page,
+    // Page numbers to offer: the first, the last, and one either side of the current page,
     // with null where more than one page is skipped.
     function pageNumbers(page, pages) {
       const keep = new Set([1, pages]);
-      for (let p = page - 2; p <= page + 2; p++) if (p >= 1 && p <= pages) keep.add(p);
+      for (let p = page - 1; p <= page + 1; p++) if (p >= 1 && p <= pages) keep.add(p);
       const list = [];
       let previous = 0;
       for (const p of [...keep].sort((a, b) => a - b)) {
@@ -1001,7 +1008,7 @@
       if (pages > 7) {
         // Any page number, for jumps past the ones shown.
         const jump = el("form", "page-jump");
-        const label = el("label", null, "Go to page");
+        const label = el("label", null, "Jump to page");
         label.htmlFor = "page-input";
         const input = el("input");
         input.type = "number";
@@ -1009,7 +1016,7 @@
         input.min = "1";
         input.max = String(pages);
         input.inputMode = "numeric";
-        input.placeholder = `1–${pages}`;
+        input.placeholder = String(current.page);
         const go = el("button", "more", "Go");
         go.type = "submit";
         jump.append(label, input, go);
