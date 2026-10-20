@@ -577,11 +577,9 @@
   .mini-strip { display: flex; height: 0.5rem; overflow: hidden; }
   .mini-strip i { display: block; min-width: 1px; }
   .finder-foot {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem 1rem;
+    display: grid;
+    justify-items: start;
+    gap: 1rem;
   }
   .more {
     border: 1px solid var(--ink);
@@ -593,6 +591,17 @@
     font-size: 0.875rem;
     cursor: pointer;
   }
+  .pager, .batch {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    font-family: var(--font-display);
+    font-size: 0.875rem;
+  }
+  .batch-text { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pager-text { font-variant-numeric: tabular-nums; min-width: 7.5rem; text-align: center; }
+  .more:disabled { opacity: 0.4; cursor: default; }
   .finder-note { margin: 0; font-family: var(--font-display); font-size: 0.75rem; color: var(--muted); }
 
   /* ---------- Selected work ---------- */
@@ -735,9 +744,11 @@
       <label><input type="radio" name="sort" value="overall"> Brightest overall</label>
       <label><input type="radio" name="sort" value="color"> Brightest in your color</label>
     </fieldset>
+    <div class="batch" id="batch-top" hidden></div>
     <div class="results" id="results" hidden></div>
     <div class="finder-foot" id="finder-foot" hidden>
-      <button type="button" class="more" id="more">Show more</button>
+      <nav class="pager" id="pager" aria-label="Result pages"></nav>
+      <div class="batch" id="batch-bottom" hidden></div>
       <p class="finder-note">Select a work to see its details and wall label. Only works the museum allows at full size appear in search.</p>
     </div>
   </section>
@@ -782,7 +793,8 @@
     const back = document.getElementById("back");
     const results = document.getElementById("results");
     const foot = document.getElementById("finder-foot");
-    const more = document.getElementById("more");
+    const pager = document.getElementById("pager");
+    const batchRows = [document.getElementById("batch-top"), document.getElementById("batch-bottom")];
     const presets = [...document.querySelectorAll(".preset")];
     const sortControl = document.getElementById("sort");
     const dialog = document.getElementById("work-dialog");
@@ -792,7 +804,7 @@
     const details = new Map(); // full details from /api/work, by id
     let current = null;        // the search on screen
     let sortMode = "share";    // "share", "overall" or "color"
-    const PAGE = 48;           // works shown at first, and added by Show more
+    const PAGE = 100;          // works per page
     let openId = null;         // the work in the dialog
     let workEntryPushed = false; // whether closing the dialog should go back a history entry
     let leavingWork = false;     // the dialog closed and the browser is still stepping back
@@ -923,8 +935,44 @@
       return link;
     }
 
-    // Every match is sorted, then the first current.shown appear. Exhibition works stay first,
-    // in the chosen order. Cards are made once and moved, so images that have loaded stay loaded.
+    function button(label, onClick, disabled = false) {
+      const b = el("button", "more", label);
+      b.type = "button";
+      b.disabled = disabled;
+      b.addEventListener("click", onClick);
+      return b;
+    }
+
+    function showPage(page) {
+      current.page = page;
+      renderResults();
+      statusLine.closest(".status-row").scrollIntoView({ block: "start" });
+    }
+
+    // The page buttons, and the batch buttons when more than one batch of matches exists.
+    function renderControls(count) {
+      const pages = Math.max(1, Math.ceil(count / PAGE));
+      pager.replaceChildren(
+        button("Previous page", () => showPage(current.page - 1), current.page <= 1),
+        el("span", "pager-text", `Page ${current.page} of ${pages}`),
+        button("Next page", () => showPage(current.page + 1), current.page >= pages),
+      );
+      pager.hidden = pages <= 1;
+      for (const row of batchRows) {
+        row.hidden = current.batches <= 1;
+        if (row.hidden) continue;
+        const first = (current.batch - 1) * current.limit + 1;
+        const last = Math.min(current.batch * current.limit, current.total);
+        row.replaceChildren(
+          el("span", "batch-text", `Works ${first.toLocaleString()}–${last.toLocaleString()} of ${current.total.toLocaleString()} by museum page views`),
+          ...(current.batch > 1 ? [button(`Previous ${current.limit.toLocaleString()} images`, () => load(current.batch - 1), current.loading)] : []),
+          ...(current.batch < current.batches ? [button(`Next ${current.limit.toLocaleString()} images`, () => load(current.batch + 1), current.loading)] : []),
+        );
+      }
+    }
+
+    // Every work in the batch is sorted and shown PAGE at a time. Exhibition works come first in
+    // the first batch, in the chosen order. Cards are made once and moved, so loaded images stay loaded.
     function renderResults() {
       if (!current) return;
       const value = { share: (w) => w.share, overall: (w) => w.overall, color: (w) => w.inColor }[sortMode];
@@ -939,11 +987,10 @@
         }
         return work.card;
       };
-      results.replaceChildren(
-        ...order(current.ours).map((w) => cardFor(w, true)),
-        ...order(current.works).slice(0, current.shown).map((w) => cardFor(w, false)),
-      );
-      more.hidden = current.shown >= current.works.length;
+      const ours = current.batch === 1 ? order(current.ours).map((w) => [w, true]) : [];
+      const all = [...ours, ...order(current.works).map((w) => [w, false])];
+      results.replaceChildren(...all.slice((current.page - 1) * PAGE, current.page * PAGE).map(([w, mine]) => cardFor(w, mine)));
+      renderControls(all.length);
     }
 
     // Exhibition works whose palettes include one of the colors the search matched.
@@ -956,13 +1003,26 @@
         .sort((a, b) => b.share - a.share);
     }
 
-    async function load() {
+    // Loads one batch of matches (batch 1 is the most viewed) and shows its first page.
+    async function load(batch = 1) {
       const search = current;
+      const switching = search.works.length > 0; // a batch button, not a new search
+      search.loading = true;
+      if (switching) {
+        renderControls(0);
+        setStatus(`Loading the ${batch > search.batch ? "next" : "previous"} ${search.limit.toLocaleString()} images…`, search.color);
+      }
       try {
-        const response = await fetch(`${SEARCH_API}?color=${encodeURIComponent(museumColor(search.color))}`);
+        const response = await fetch(`${SEARCH_API}?color=${encodeURIComponent(museumColor(search.color))}&batch=${batch}`);
         const data = await response.json();
         if (search !== current) return; // a newer search started meanwhile
         if (!response.ok) throw new Error(data.error || "Search isn't working right now. Try again in a minute.");
+        search.loading = false;
+        search.batch = data.batch;
+        search.batches = data.batches;
+        search.limit = data.limit;
+        search.total = data.total;
+        search.page = 1;
         search.matched = new Set(data.query.colors);
         search.ours = exhibitionMatches(data.query.colors).map((w) => withBrightness(w, search.matched));
         search.works = data.results.filter((work) => !exhibitionById.has(work.id)).map((work) => {
@@ -977,25 +1037,32 @@
           setStatus("No works with images use colors close to this one. Try a swatch or a nearby color.", search.color);
         } else {
           const ours = search.ours.length ? `, including ${search.ours.length} from this exhibition` : "";
-          const capped = data.total > data.limit
-            ? `. Sorting covers the ${data.limit.toLocaleString()} most viewed on the museum's website.` : "";
-          setStatus(`${total.toLocaleString()} ${total === 1 ? "work uses" : "works use"} colors close to ${search.label}${ours}${capped}`, search.color);
+          const batched = data.batches > 1
+            ? `. Sorting covers ${data.limit.toLocaleString()} at a time, starting with the most viewed on the museum's website.` : "";
+          setStatus(`${total.toLocaleString()} ${total === 1 ? "work uses" : "works use"} colors close to ${search.label}${ours}${batched}`, search.color);
         }
         results.hidden = !results.children.length;
         foot.hidden = results.hidden;
         sortControl.hidden = results.hidden;
+        if (switching) statusLine.closest(".status-row").scrollIntoView({ block: "start" });
       } catch (err) {
         if (search !== current) return;
+        search.loading = false;
         setStatus(err.message === "Failed to fetch" ? "Couldn't reach the search. Check your connection and try again." : err.message);
-        results.hidden = true;
-        foot.hidden = true;
-        sortControl.hidden = true;
+        if (search.works.length) {
+          renderControls(search.ours.length + search.works.length); // keep the batch on screen
+        } else {
+          results.hidden = true;
+          foot.hidden = true;
+          sortControl.hidden = true;
+        }
       }
     }
 
     // mode: "push" adds a history entry, "replace" updates the current one, "none" leaves history alone.
     function search(color, label, mode = "push") {
-      current = { color, label: label || color, shown: PAGE, ours: [], works: [], matched: new Set() };
+      current = { color, label: label || color, page: 1, batch: 1, batches: 1, limit: 2000, total: 0,
+                  loading: false, ours: [], works: [], matched: new Set() };
       picker.value = color;
       if (!text.value.trim()) text.value = current.label;
       presets.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.color === color)));
@@ -1004,6 +1071,7 @@
       results.hidden = true;
       foot.hidden = true;
       sortControl.hidden = true;
+      batchRows.forEach((row) => { row.hidden = true; });
       setStatus("Searching the collection…", color);
       // Each search gets its own history entry, so the browser's Back button returns to the exhibition.
       const state = { color, label: current.label };
@@ -1020,6 +1088,7 @@
       results.hidden = true;
       foot.hidden = true;
       sortControl.hidden = true;
+      batchRows.forEach((row) => { row.hidden = true; });
       back.hidden = true;
       setStatus("");
       exhibition.hidden = false;
@@ -1209,12 +1278,9 @@
       text.value = button.textContent.toLowerCase();
       search(button.dataset.color, text.value);
     }));
-    more.addEventListener("click", () => {
-      current.shown += PAGE;
-      renderResults();
-    });
     sortControl.addEventListener("change", (event) => {
       sortMode = event.target.value;
+      if (current) current.page = 1;
       renderResults();
     });
     back.addEventListener("click", () => showExhibition());

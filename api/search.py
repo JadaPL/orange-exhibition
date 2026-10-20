@@ -27,7 +27,6 @@ IMAGES = "https://nrs.harvard.edu/"
 PAGE_SIZE = 100  # the most the API returns per request
 MAX_WORKS = 2000  # works gathered per search
 WORKERS = 10      # API requests made at the same time
-MAX_DEPTH = 1_000_000  # how far into the matches the API can page
 FIELDS = "objectid,title,dated,people,primaryimageurl,colors,url"
 
 
@@ -101,8 +100,6 @@ def search(query, key):
         spread, batch = 1, 1
     pages_per_batch = MAX_WORKS // PAGE_SIZE
     first_page = (batch - 1) * pages_per_batch + 1
-    if (first_page - 1) * PAGE_SIZE >= MAX_DEPTH:
-        return 400, {"error": f"The museum's search only reaches its first {MAX_DEPTH:,} matches."}
     if not re.fullmatch(r"[0-9a-fA-F]{6}", color):
         return 400, {"error": "Choose a color, for example #e8590c."}
 
@@ -116,7 +113,7 @@ def search(query, key):
     try:
         first = fetch_page(params, first_page)
         info = first.get("info") or {}
-        last_page = min(info.get("pages") or 0, first_page + pages_per_batch - 1, MAX_DEPTH // PAGE_SIZE)
+        last_page = min(info.get("pages") or 0, first_page + pages_per_batch - 1)
         records = list(first.get("records") or [])
         if last_page > first_page:
             with ThreadPoolExecutor(max_workers=WORKERS) as pool:
@@ -137,7 +134,7 @@ def search(query, key):
     results.sort(key=lambda r: r["share"], reverse=True)
     total = info.get("totalrecords", 0)
     return 200, {"query": {"color": colors[0], "colors": colors}, "total": total, "limit": MAX_WORKS,
-                 "batch": batch, "batches": max(1, -(-min(total, MAX_DEPTH) // MAX_WORKS)), "results": results}
+                 "batch": batch, "batches": max(1, -(-total // MAX_WORKS)), "results": results}
 
 
 class handler(BaseHTTPRequestHandler):
