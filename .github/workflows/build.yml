@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # to save the built index.html for Vercel
   pages: write
   id-token: write
 
@@ -24,11 +24,27 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: main
 
       - name: Build the page from the Harvard Art Museums API
         run: python3 build.py
         env:
           HAM_API_KEY: ${{ secrets.HAM_API_KEY }}
+
+      # Vercel serves the repo's files as they are, so it gets the built page as index.html.
+      # Pushes made by this workflow don't start it again. If main changed during the build,
+      # that newer push has its own run, which saves the page instead.
+      - name: Save the built page for Vercel
+        run: |
+          cp site/index.html index.html
+          git add index.html
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Update the built page"
+            git push || echo "main changed during the build; its own run will save the page."
+          fi
 
       - uses: actions/upload-pages-artifact@v5
         with:

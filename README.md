@@ -28,7 +28,7 @@ A timeline exhibition of abstract paintings from the [Harvard Art Museums](https
 
 ## How it works
 
-A GitHub Action (`.github/workflows/build.yml`) runs `build.py` on every change and every Monday. The script looks up each work in the Harvard Art Museums API using the `HAM_API_KEY` repository secret, fills `template.html` with the name, artist, date, collection, image, palette and gallery location, and publishes the result to GitHub Pages. The key is never included in the published page.
+A GitHub Action (`.github/workflows/build.yml`) runs `build.py` on every change and every Monday. The script looks up each work in the Harvard Art Museums API using the `HAM_API_KEY` repository secret, fills `template.html` with the name, artist, date, collection, image, palette and gallery location, and publishes the result to GitHub Pages. It also saves the built page as `index.html`, which Vercel serves at https://orange-exhibition.vercel.app/. The key is never included in the published page.
 
 Images load from Harvard's public image service. Works with museum image restrictions are shown no larger than 256 pixels.
 
@@ -37,3 +37,4 @@ Images load from Harvard's public image service. Works with museum image restric
 - `works.json`: the works in the exhibition and their wall labels.
 - `template.html`: the page design.
 - `build.py`: builds the page from the API.
+- `index.html`: the built page, saved by the Action for Vercel. Don't edit it by hand; changes are replaced on the next build.
