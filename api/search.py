@@ -3,8 +3,8 @@
 Vercel runs this file as /api/search. It calls the Harvard Art Museums API with the
 HARVARD_API_KEY environment variable, so the key never reaches the browser.
 
-  /api/search?color=%23e8590c   works whose palette has the closest museum color
-  /api/search?hue=Orange        works whose palette has that hue
+  /api/search?color=%23e8590c   works whose palette has a color close to this one
+  &spread=0                     only the single closest museum color (default 1, up to 2)
   &page=2                       the next page of results
 
 Only works the museum allows at any size (imagepermissionlevel 0) are returned,
@@ -21,7 +21,6 @@ from http.server import BaseHTTPRequestHandler
 
 API = "https://api.harvardartmuseums.org/object"
 IMAGES = "https://nrs.harvard.edu/"
-HUES = ["Red", "Orange", "Yellow", "Green", "Blue", "Violet", "Brown", "Grey", "Black", "White"]
 PAGE_SIZE = 48
 MAX_PAGE = 50
 FIELDS = "objectid,title,dated,people,primaryimageurl,colors,url"
@@ -29,8 +28,18 @@ FIELDS = "objectid,title,dated,people,primaryimageurl,colors,url"
 
 def museum_color(hex_color):
     """Round a color to the museum's palette, whose channels step by 25 (0, 25, ... 250)."""
-    channels = [int(hex_color[i:i + 2], 16) for i in (0, 2, 4)]
-    return "#" + "".join(f"{min(250, round(c / 25) * 25):02x}" for c in channels)
+    return tuple(min(250, round(int(hex_color[i:i + 2], 16) / 25) * 25) for i in (0, 2, 4))
+
+
+def nearby_colors(center, spread):
+    """The palette colors within `spread` steps of the center on every channel, closest first."""
+    steps = range(-spread, spread + 1)
+    colors = {
+        tuple(min(250, max(0, c + d * 25)) for c, d in zip(center, (dr, dg, db)))
+        for dr in steps for dg in steps for db in steps
+    }
+    ordered = sorted(colors, key=lambda rgb: sum((a - b) ** 2 for a, b in zip(rgb, center)))
+    return ["#" + "".join(f"{c:02x}" for c in rgb) for rgb in ordered]
 
 
 def fetch(params):
@@ -69,25 +78,20 @@ def result_of(record, matches):
 def search(query, key):
     """Return (status, body) for the parsed query string."""
     color = (query.get("color") or [""])[0].strip().lstrip("#")
-    hue = (query.get("hue") or [""])[0].strip().capitalize()
     try:
         page = max(1, min(MAX_PAGE, int((query.get("page") or ["1"])[0])))
+        spread = max(0, min(2, int((query.get("spread") or ["1"])[0])))
     except ValueError:
-        page = 1
+        page, spread = 1, 1
+    if not re.fullmatch(r"[0-9a-fA-F]{6}", color):
+        return 400, {"error": "Choose a color, for example #e8590c."}
 
     params = {"apikey": key, "hasimage": 1, "size": PAGE_SIZE, "page": page, "fields": FIELDS,
               "sort": "totalpageviews", "sortorder": "desc", "q": "imagepermissionlevel:0"}
-    if re.fullmatch(r"[0-9a-fA-F]{6}", color):
-        value = museum_color(color.lower())
-        params["color"] = value
-        label = {"type": "color", "value": value}
-        matches = lambda c: (c.get("color") or "").lower() == value
-    elif hue in HUES:
-        params["q"] += f" AND colors.hue:{hue}"
-        label = {"type": "hue", "value": hue}
-        matches = lambda c: c.get("hue") == hue
-    else:
-        return 400, {"error": "Choose a color, such as #e8590c, or a color name: " + ", ".join(HUES) + "."}
+    colors = nearby_colors(museum_color(color.lower()), spread)
+    params["color"] = "|".join(colors)
+    wanted = set(colors)
+    matches = lambda c: (c.get("color") or "").lower() in wanted
 
     try:
         data = fetch(params)
@@ -99,7 +103,7 @@ def search(query, key):
     info = data.get("info") or {}
     results = [r for r in (result_of(rec, matches) for rec in data.get("records") or []) if r["image"]]
     results.sort(key=lambda r: r["share"], reverse=True)
-    return 200, {"query": label, "total": info.get("totalrecords", 0), "page": page,
+    return 200, {"query": {"color": colors[0], "colors": colors}, "total": info.get("totalrecords", 0), "page": page,
                  "pages": min(info.get("pages", 0), MAX_PAGE), "results": results}
 
 
