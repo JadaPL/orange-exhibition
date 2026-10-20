@@ -22,6 +22,8 @@ A timeline exhibition of abstract paintings from the [Harvard Art Museums](https
    ```
 
    Separate entries with commas. The order doesn't matter: the site sorts works by date. An optional `"alt"` adds a description of the image for screen readers.
+
+   If the museum restricts the work's image, the API leaves the image out. The museum still allows it at up to 256 pixels, so you can add its image ID as `"image"`. On the museum page, right-click the picture, choose **Copy Image Address**, and use the part that starts with `urn-3:` up to `_dynmc`, for example `"image": "urn-3:HUAM:73624_dynmc"`. The site always shows these images at 256 pixels or smaller.
 3. Click **Commit changes**. About a minute later the work appears on the live site.
 
 ## How it works

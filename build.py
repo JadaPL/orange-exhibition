@@ -53,12 +53,16 @@ def artist_of(obj):
     return person.get("displayname") or person.get("name") or "Unknown artist", detail
 
 
-def image_of(obj, alt):
-    """Return the image markup, keeping to the museum's size limit, or "" if none may be shown."""
+def image_of(obj, work):
+    """Return the image markup, keeping to the museum's size limit, or "" if none may be shown.
+
+    The API leaves out images of restricted works (level 1), which the museum allows at 256px,
+    so works.json can supply the image ID for those as "image".
+    """
     level = obj.get("imagepermissionlevel", 2)
     images = sorted(obj.get("images") or [], key=lambda im: im.get("displayorder") or 99)
     image = images[0] if images else {}
-    base = image.get("baseimageurl") or obj.get("primaryimageurl") or ""
+    base = image.get("baseimageurl") or obj.get("primaryimageurl") or work.get("image") or ""
     if level >= 2 or not base:
         return ""
     urn = base.rsplit("/", 1)[-1]
@@ -80,7 +84,7 @@ def image_of(obj, alt):
     if level == 0:
         srcset = (f' srcset="{src(800)} 800w, {src(FULL_PX)} {FULL_PX}w"'
                   ' sizes="(max-width: 640px) 90vw, 40rem"')
-    alt = alt or image.get("alttext") or ""
+    alt = work.get("alt") or image.get("alttext") or ""
     return f'<img src="{src(limit)}"{srcset}{size} loading="lazy" alt="{esc(alt)}">'
 
 
@@ -111,7 +115,7 @@ def entry_of(work, obj, anchor):
     number = obj.get("objectnumber") or ""
     credit = " · ".join(part for part in (esc(gift), f'<span class="num">{esc(number)}</span>' if number else "") if part)
 
-    image = image_of(obj, work.get("alt"))
+    image = image_of(obj, work)
     if image:
         caption = " · ".join(part for part in (obj.get("copyright"), "Photo: Harvard Art Museums") if part)
         artwork = f'''        <figure class="artwork">
@@ -221,7 +225,7 @@ def main():
         print(f"Loaded {work['id']}: {obj.get('title')} ({obj.get('dated')}); "
               f"image permission level {obj.get('imagepermissionlevel')}, {len(images)} image record(s), "
               f"primary image {'yes' if obj.get('primaryimageurl') else 'no'}, "
-              f"image shown {'yes' if image_of(obj, '') else 'no'}")
+              f"image shown {'yes' if image_of(obj, work) else 'no'}")
 
     items.sort(key=lambda item: (item[1].get("datebegin") or 0, item[1].get("dated") or ""))
     page = (ROOT / "template.html").read_text(encoding="utf-8")
