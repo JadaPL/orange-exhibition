@@ -610,7 +610,7 @@
   }
   .page-num[aria-current="page"] { background: var(--ink); color: var(--bg); }
   .page-num:hover:not(:disabled),
-  .page-step:hover:not(:disabled) {
+  .hover-orange:hover:not(:disabled) {
     background: var(--page-hover-bg);
     border-color: var(--page-hover-bg);
     color: var(--page-hover-fg);
@@ -1003,8 +1003,8 @@
       });
       const previous = button("Previous page", () => showPage(current.page - 1), current.page <= 1);
       const next = button("Next page", () => showPage(current.page + 1), current.page >= pages);
-      previous.classList.add("page-step");
-      next.classList.add("page-step");
+      previous.classList.add("hover-orange");
+      next.classList.add("hover-orange");
       const controls = [previous, ...numbers, next];
       if (pages > 7) {
         // Any page number, for jumps past the ones shown.
@@ -1018,7 +1018,7 @@
         input.max = String(pages);
         input.inputMode = "numeric";
         input.placeholder = String(current.page);
-        const go = el("button", "more page-step", "Go");
+        const go = el("button", "more hover-orange", "Go");
         go.type = "submit";
         jump.append(label, input, go);
         jump.addEventListener("submit", (event) => {
@@ -1041,6 +1041,7 @@
           ...(current.batch > 1 ? [button(`Previous ${current.limit.toLocaleString()} images`, () => load(current.batch - 1), current.loading)] : []),
           ...(current.batch < current.batches ? [button(`Next ${current.limit.toLocaleString()} images`, () => load(current.batch + 1), current.loading)] : []),
         );
+        row.querySelectorAll("button").forEach((b) => b.classList.add("hover-orange"));
       }
     }
 
