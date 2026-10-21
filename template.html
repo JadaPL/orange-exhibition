@@ -369,6 +369,75 @@
     line-height: 1.2;
   }
   .finder-head p { margin: 0; color: var(--muted); max-width: 40rem; }
+  .finder-sub {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+  }
+  .colors-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+  .colors-toggle::after {
+    content: "";
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-0.12rem) rotate(45deg);
+    transition: transform 0.15s;
+  }
+  .colors-toggle[aria-expanded="true"]::after { transform: translateY(0.12rem) rotate(-135deg); }
+  .colors-toggle:hover { border-color: var(--muted); }
+  .colors-toggle:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+  .color-panel {
+    display: grid;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: var(--bg);
+    border: 1px solid var(--line);
+  }
+  .color-readout {
+    margin: 0;
+    min-height: 2.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
+    font-family: var(--font-display);
+    font-size: 0.9375rem;
+    color: var(--muted);
+  }
+  .color-readout strong { color: var(--ink); font-weight: 700; }
+  .color-hex { font-variant-numeric: tabular-nums; }
+  .color-readout .status-swatch { width: 1.4rem; height: 1.4rem; }
+  .color-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(1.9rem, 1fr));
+    gap: 0.3rem;
+  }
+  .color-swatch {
+    aspect-ratio: 1;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: var(--c);
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.14);
+    cursor: pointer;
+  }
+  .color-swatch:hover, .color-swatch:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .color-swatch[aria-pressed="true"] { outline: 3px solid var(--orange); outline-offset: 2px; }
   .search-bar {
     display: flex;
     align-items: stretch;
@@ -738,7 +807,14 @@
   <section class="finder" id="search" aria-labelledby="finder-title">
     <div class="finder-head">
       <h2 class="finder-title" id="finder-title">Find art by color</h2>
-      <p>Search the Harvard Art Museums collection for works that use a color.</p>
+      <div class="finder-sub">
+        <p>Search the Harvard Art Museums collection for works that use a color.</p>
+        <button type="button" class="colors-toggle" id="colors-toggle" aria-expanded="false" aria-controls="color-panel">All color options</button>
+      </div>
+    </div>
+    <div class="color-panel" id="color-panel" hidden>
+      <p class="color-readout" id="color-readout" aria-live="polite"></p>
+      <div class="color-grid" id="color-grid" role="group" aria-label="Every color name the search recognizes"></div>
     </div>
     <form class="search-bar" id="color-search" role="search">
       <label class="picker" title="Pick a color">
@@ -821,6 +897,10 @@
     const pager = document.getElementById("pager");
     const batchRows = [document.getElementById("batch-top"), document.getElementById("batch-bottom")];
     const presets = [...document.querySelectorAll(".preset")];
+    const colorsToggle = document.getElementById("colors-toggle");
+    const colorPanel = document.getElementById("color-panel");
+    const colorGrid = document.getElementById("color-grid");
+    const colorReadout = document.getElementById("color-readout");
     const sortControl = document.getElementById("sort");
     const dialog = document.getElementById("work-dialog");
     const dialogBody = document.getElementById("dialog-body");
@@ -868,6 +948,100 @@
       const out = ctx.fillStyle;
       if (out === "#010203" || !out.startsWith("#")) return null;
       return out;
+    }
+
+    // Every color name the text box recognizes: the standard CSS color names.
+    const COLOR_NAMES = `
+      aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet
+      brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue
+      darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange
+      darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise
+      darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen
+      fuchsia gainsboro ghostwhite gold goldenrod gray grey green greenyellow honeydew hotpink indianred
+      indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan
+      lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen
+      lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta
+      maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue
+      mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin
+      navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen
+      paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple
+      red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue
+      slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet
+      wheat white whitesmoke yellow yellowgreen
+    `.trim().split(/\s+/);
+    let pickedColor = null; // the swatch last clicked in All color options
+
+    function hsl(hex) {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const l = (max + min) / 2;
+      const d = max - min;
+      if (!d) return { h: 0, s: 0, l };
+      const s = d / (1 - Math.abs(2 * l - 1));
+      const h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return { h: h * 60, s, l };
+    }
+
+    // Names that are the same color share one swatch, such as aqua and cyan. Swatches run
+    // through the hues, light to dark, with whites, greys and black last.
+    function buildColorGrid() {
+      const byHex = new Map();
+      for (const name of COLOR_NAMES) {
+        const hex = parseColor(name);
+        if (hex) byHex.set(hex, [...(byHex.get(hex) || []), name]);
+      }
+      const colors = [...byHex].map(([hex, names]) => ({ hex, names, ...hsl(hex) }));
+      const neutral = (c) => c.s < 0.12 || c.l > 0.96 || c.l < 0.06;
+      colors.sort((a, b) => neutral(a) - neutral(b)
+        || (neutral(a) ? 0 : Math.floor(a.h / 30) - Math.floor(b.h / 30))
+        || b.l - a.l);
+      colorGrid.replaceChildren(...colors.map((color) => {
+        const swatch = el("button", "color-swatch");
+        swatch.type = "button";
+        swatch.style.setProperty("--c", color.hex);
+        swatch.title = color.names.join(" / ");
+        swatch.setAttribute("aria-label", color.names.join(" or "));
+        swatch.setAttribute("aria-pressed", "false");
+        swatch.addEventListener("mouseenter", () => showColorName(color));
+        swatch.addEventListener("focus", () => showColorName(color));
+        swatch.addEventListener("mouseleave", () => showColorName(null));
+        swatch.addEventListener("click", () => {
+          pickedColor = color;
+          colorGrid.querySelectorAll(".color-swatch").forEach((b) => b.setAttribute("aria-pressed", String(b === swatch)));
+          showColorName(color);
+        });
+        return swatch;
+      }));
+    }
+
+    // The readout above the grid: the swatch being pointed at, else the one last clicked.
+    function showColorName(color) {
+      const shown = color || pickedColor;
+      if (!shown) {
+        colorReadout.textContent = "Hover over or select a color to see its name.";
+        return;
+      }
+      const chip = el("span", "status-swatch");
+      chip.style.setProperty("--c", shown.hex);
+      colorReadout.replaceChildren(chip, el("strong", null, shown.names.join(" / ")), el("span", "color-hex", shown.hex));
+      if (shown === pickedColor) {
+        const go = el("button", "more hover-orange", `Search for ${shown.names[0]}`);
+        go.type = "button";
+        go.addEventListener("click", () => {
+          setColorPanel(false);
+          text.value = shown.names[0];
+          search(shown.hex, shown.names[0]);
+        });
+        colorReadout.append(go);
+      }
+    }
+
+    function setColorPanel(open) {
+      if (open && !colorGrid.children.length) buildColorGrid();
+      if (open) showColorName(null);
+      colorPanel.hidden = !open;
+      colorsToggle.setAttribute("aria-expanded", String(open));
     }
 
     function setStatus(message, swatch) {
@@ -1332,6 +1506,14 @@
       // The browser closed the dialog without the page, for example a second Esc.
       openId = null;
       leaveWorkEntry();
+    });
+
+    colorsToggle.addEventListener("click", () => setColorPanel(colorPanel.hidden));
+    colorPanel.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        setColorPanel(false);
+        colorsToggle.focus();
+      }
     });
 
     form.addEventListener("submit", (event) => {

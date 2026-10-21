@@ -30,6 +30,8 @@ A timeline exhibition of abstract paintings from the [Harvard Art Museums](https
 
 The search bar near the top of the page finds works in the Harvard Art Museums collection that use a color. Pick a swatch, choose any color with the color picker, or type a name like `teal` or a code like `#e8590c`.
 
+**All color options** opens a grid of every color name the search box recognizes: the 148 standard web color names, with names for the same color sharing a swatch. Hover over or select a color to see its name and code, and **Search for …** runs that search.
+
 **Sort by** puts the results in one of three orders. Works from this exhibition stay first, in the same order.
 
 - **Closest to your color** (the default): how much of the image is close to your color.
