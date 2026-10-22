@@ -12,8 +12,8 @@ const MODEL = "Xenova/clip-vit-base-patch32"; // must match CLIP_MODEL in templa
 
 const THEMES = {
   "landscape": "a landscape", "seascape": "the sea or a harbor", "portrait": "a portrait of a person",
-  "group of figures": "a group of people", "nude": "a nude figure", "still life": "a still life",
-  "flowers and plants": "flowers and plants", "animals": "animals", "architecture": "buildings and architecture",
+  "group of figures": "a group of people", "nude": "a nude human figure", "still life": "a still life",
+  "flowers and plants": "flowers and plants", "animals": "an animal such as a cat, dog, horse or bird", "architecture": "buildings and architecture",
   "interior": "a room interior", "religious scene": "a religious scene", "myth or history": "a mythological or historical scene",
   "abstraction": "an abstract composition of shapes and colors", "pattern": "a decorative pattern",
   "text and calligraphy": "writing or calligraphy", "vessel": "a vase, bowl or vessel", "sculpture": "a sculpture",
