@@ -8,6 +8,7 @@ import html
 import json
 import os
 import re
+import shutil
 import sys
 import urllib.error
 import urllib.parse
@@ -281,6 +282,8 @@ def main():
     out = ROOT / "site"
     out.mkdir(exist_ok=True)
     (out / "index.html").write_text(page, encoding="utf-8")
+    # The theme and style descriptions "Find similar works" compares images with.
+    shutil.copyfile(ROOT / "clip-labels.json", out / "clip-labels.json")
     print(f"Wrote site/index.html with {len(items)} works.")
 
 

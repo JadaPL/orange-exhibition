@@ -757,6 +757,68 @@
     .work-dialog { width: 100%; height: 100%; max-height: 100%; }
   }
 
+  /* ---------- Similar works ---------- */
+  .similar {
+    display: grid;
+    gap: 1rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--line);
+  }
+  .similar h3 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.125rem;
+    font-weight: 700;
+  }
+  .similar-status {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  .similar > .more { justify-self: start; }
+  .similar-context {
+    display: grid;
+    gap: 0.9rem;
+    padding: 1rem;
+    background: var(--surface);
+  }
+  .similar-context section { display: grid; gap: 0.4rem; }
+  .similar-context h4 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .similar-context p { margin: 0; font-size: 0.9375rem; line-height: 1.5; }
+  .similar-context a { color: var(--orange-ink); text-underline-offset: 3px; }
+  .similar-links { display: flex; flex-wrap: wrap; gap: 0.25rem 0.9rem; font-family: var(--font-display); font-size: 0.8125rem; }
+  .similar-credit { font-family: var(--font-display); font-size: 0.75rem !important; color: var(--muted); }
+  .tags { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .tag {
+    padding: 0.15rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--bg);
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+  }
+  .tag.seen { border-color: var(--orange-ink); color: var(--orange-ink); }
+  .similar .results { grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); }
+  .reasons { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+  .reason {
+    padding: 0.1rem 0.45rem;
+    background: var(--surface);
+    font-family: var(--font-display);
+    font-size: 0.6875rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+  .reason.seen { background: transparent; box-shadow: inset 0 0 0 1px var(--orange-ink); color: var(--orange-ink); }
+
   footer {
     border-top: 1px solid var(--line);
     padding-top: 1.25rem;
@@ -1424,7 +1486,344 @@
         footRow.append(link);
       }
       parts.push(footRow);
+      if (!problem && (work.image || work.large)) parts.push(similarSection(work));
       dialogBody.replaceChildren(...parts);
+    }
+
+    // ---------- Find similar works ----------
+    // Candidates and context come from /api/similar (Harvard, Wikidata and Wikipedia). The images are
+    // compared here in the browser with CLIP, an image model downloaded once and then cached.
+    const SIMILAR_API = `${BASE}/api/similar`;
+    const TRANSFORMERS = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1/dist/transformers.min.js";
+    const CLIP_MODEL = "Xenova/clip-vit-base-patch32"; // the model clip-labels.json was made with
+    const SIMILAR_SHOWN = 24;
+    const vectors = new Map();       // image address → CLIP image vector
+    const similarStates = new Map(); // work id → finished comparison, shown again when the work reopens
+    let clip = null;                 // the image model, once loading has started
+    let clipProgress = () => {};
+    let similarMode = "best";
+
+    const dot = (a, b) => { let sum = 0; for (let i = 0; i < a.length; i++) sum += a[i] * b[i]; return sum; };
+    const clamp = (x) => Math.max(0, Math.min(1, x));
+    function normalize(v) {
+      const length = Math.hypot(...v) || 1;
+      return Array.from(v, (x) => x / length);
+    }
+    // A small copy of the image is enough: CLIP looks at 224 × 224 pixels.
+    const analysisUrl = (url) => url.replace(/\/full\/[^/]+\//, "/full/!256,256/");
+
+    function loadClip() {
+      if (!clip) {
+        clip = (async () => {
+          const T = await import(TRANSFORMERS);
+          const files = new Map();
+          const progress_callback = (p) => {
+            if (p.status !== "progress" || !p.total) return;
+            files.set(p.file, p);
+            let loaded = 0;
+            let total = 0;
+            for (const f of files.values()) { loaded += f.loaded; total += f.total; }
+            clipProgress(loaded, total);
+          };
+          // The graphics chip (WebGPU) is about 20 times faster where the browser offers it.
+          const loadModel = (device) => T.CLIPVisionModelWithProjection.from_pretrained(CLIP_MODEL, { dtype: "q4", device, progress_callback });
+          const [processor, model, labels] = await Promise.all([
+            T.AutoProcessor.from_pretrained(CLIP_MODEL, { progress_callback }),
+            navigator.gpu ? loadModel("webgpu").catch(() => loadModel("wasm")) : loadModel("wasm"),
+            fetch("clip-labels.json").then((r) => {
+              if (!r.ok) throw new Error("The theme and style list didn't load.");
+              return r.json();
+            }),
+          ]);
+          return { T, processor, model, labels };
+        })();
+        clip.catch(() => { clip = null; }); // let a later try start over
+      }
+      return clip;
+    }
+
+    // Downloads every image at once, then analyzes them in small batches.
+    async function imageVectors(urls, onProgress) {
+      const { T, processor, model } = await loadClip();
+      const todo = [...new Set(urls)].filter((u) => !vectors.has(u));
+      let fetched = 0;
+      const images = await Promise.all(todo.map((u) => T.RawImage.fromURL(u).catch(() => null).finally(() => {
+        onProgress("Loading images", ++fetched, todo.length);
+      })));
+      const ready = todo.map((u, i) => [u, images[i]]).filter(([, image]) => image);
+      for (let i = 0; i < ready.length; i += 8) {
+        const batch = ready.slice(i, i + 8);
+        const { image_embeds } = await model(await processor(batch.map(([, image]) => image)));
+        const size = image_embeds.dims[1];
+        batch.forEach(([u], j) => vectors.set(u, normalize(image_embeds.data.slice(j * size, (j + 1) * size))));
+        onProgress("Analyzing images", Math.min(i + 8, ready.length), ready.length);
+      }
+    }
+
+    // How strongly an image matches each theme or style description, adding up to 1.
+    function chances(vector, set) {
+      const logits = set.map((t) => 100 * dot(vector, t.vector));
+      const max = Math.max(...logits);
+      const exps = logits.map((x) => Math.exp(x - max));
+      const total = exps.reduce((a, b) => a + b, 0);
+      return exps.map((x) => x / total);
+    }
+    const overlap = (p, q) => p.reduce((sum, x, i) => sum + Math.min(x, q[i]), 0);
+    const strongest = (probs, set, n) => set.map((t, i) => [t.label, probs[i]]).sort((a, b) => b[1] - a[1])
+      .slice(0, n).filter(([, p], i) => i === 0 || p >= 0.12);
+
+    function analyze(state) {
+      const { themes, styles } = state.labels;
+      const query = state.queryVector;
+      const queryThemes = chances(query, themes);
+      const queryStyles = chances(query, styles);
+      state.seen = { themes: strongest(queryThemes, themes, 2), styles: strongest(queryStyles, styles, 2) };
+      for (const c of state.candidates) {
+        const v = vectors.get(analysisUrl(c.image));
+        if (!v) continue;
+        const candidateThemes = chances(v, themes);
+        const candidateStyles = chances(v, styles);
+        // Cosine similarity of two artworks' CLIP vectors runs from about 0.55 (unrelated) to 0.9 (very alike).
+        c.look = clamp((dot(query, v) - 0.55) / 0.35);
+        c.themeMatch = overlap(queryThemes, candidateThemes);
+        c.styleMatch = overlap(queryStyles, candidateStyles);
+        c.theme = strongest(candidateThemes, themes, 1)[0][0];
+        c.style = strongest(candidateStyles, styles, 1)[0][0];
+      }
+    }
+
+    const SIMILAR_SORTS = {
+      best: { label: "Best match", score: (c) => c.look == null ? c.contextScore / 2
+        : 0.35 * c.look + 0.2 * c.styleMatch + 0.2 * c.themeMatch + 0.25 * c.contextScore },
+      style: { label: "Style", score: (c) => c.look == null ? -1 : 0.65 * c.look + 0.35 * c.styleMatch },
+      theme: { label: "Theme", score: (c) => c.look == null ? -1 : 0.75 * c.themeMatch + 0.25 * c.look },
+      context: { label: "Context", score: (c) => c.contextScore + 0.1 * (c.look || 0) },
+    };
+    const CONTEXT_REASONS = {
+      artist: () => "Same artist",
+      movement: (label) => `Movement: ${label}`,
+      exhibition: (label) => `Shown together: ${label}`,
+      technique: (label) => `Same technique: ${label}`,
+      culture: (label) => `Same culture: ${label}`,
+      period: (label) => `Same period: ${label}`,
+      classification: (label) => `Same type: ${label}`,
+      colors: () => "Similar colors",
+    };
+
+    function reasons(c, state, mode) {
+      const seen = [];
+      if (c.look != null) {
+        seen.push(`Visual match ${Math.round(c.look * 100)}%`);
+        if (c.theme === state.seen.themes[0]?.[0]) seen.push(`Theme: ${c.theme}`);
+        if (c.style === state.seen.styles[0]?.[0]) seen.push(`Style: ${c.style}`);
+      }
+      // Strongest connections first, in the order CONTEXT_REASONS lists them.
+      const order = Object.keys(CONTEXT_REASONS);
+      const context = [...c.reasons].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))
+        .map((r) => CONTEXT_REASONS[r.kind]?.(r.label)).filter(Boolean);
+      const chips = mode === "context"
+        ? [...context.map((t) => [t, false]), ...seen.map((t) => [t, true])]
+        : [...seen.map((t) => [t, true]), ...context.map((t) => [t, false])];
+      return chips.slice(0, 4);
+    }
+
+    function similarCard(c, state, mode) {
+      const link = el("a", "result");
+      link.href = hashFor({ color: current && current.color, work: c.id });
+      link.addEventListener("click", (event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+        event.preventDefault();
+        openWork(c.id);
+      });
+      const thumb = el("div", "thumb");
+      const img = el("img");
+      img.src = c.image;
+      img.loading = "lazy";
+      img.alt = `${c.title} by ${c.artist}`;
+      thumb.append(img);
+      const chips = el("div", "reasons");
+      for (const [text, fromImage] of reasons(c, state, mode)) chips.append(el("span", fromImage ? "reason seen" : "reason", text));
+      link.append(thumb, el("p", "result-title", c.title),
+        el("p", "result-meta", [c.artist, c.dated].filter(Boolean).join(" · ")), chips);
+      return link;
+    }
+
+    function firstSentences(text, n) {
+      return text.split(/(?<=[.!?])\s+(?=[A-Z])/).slice(0, n).join(" ");
+    }
+
+    function contextPanel(state) {
+      const panel = el("div", "similar-context");
+      const block = (heading, ...content) => {
+        const section = el("section");
+        section.append(el("h4", null, heading), ...content);
+        panel.append(section);
+      };
+      const tags = (items, className = "tag") => {
+        const row = el("div", "tags");
+        for (const [text, href] of items) {
+          const tag = el(href ? "a" : "span", className, text);
+          if (href) { tag.href = href; tag.target = "_blank"; tag.rel = "noopener"; }
+          row.append(tag);
+        }
+        return row;
+      };
+      const links = (items) => {
+        const row = el("p", "similar-links");
+        for (const [text, href] of items) {
+          if (!href) continue;
+          const a = el("a", null, text);
+          a.href = href;
+          a.target = "_blank";
+          a.rel = "noopener";
+          row.append(a);
+        }
+        return row;
+      };
+      if (state.analysis) {
+        block("What the image analysis sees", tags([...state.seen.themes, ...state.seen.styles]
+          .map(([label, p]) => [`${label} ${Math.round(p * 100)}%`]), "tag seen"));
+      }
+      const context = state.data.context;
+      let wikipedia = false;
+      if (context.artist) {
+        const a = context.artist;
+        const about = a.wikipedia ? firstSentences(a.wikipedia.extract, 2) : a.description || "";
+        wikipedia ||= Boolean(a.wikipedia);
+        block(`About ${a.name}`, ...(about ? [el("p", null, about)] : []),
+          links([["Wikipedia", a.wikipedia?.url], ["Wikidata", a.wikidata]]));
+      }
+      if (context.movements.length) {
+        const first = context.movements[0];
+        wikipedia ||= Boolean(first.wikipedia);
+        block("Movements", tags(context.movements.map((m) => [m.label, m.wikidata])),
+          ...(first.wikipedia ? [el("p", null, firstSentences(first.wikipedia.extract, 1))] : []));
+      }
+      if (context.genres.length) block("Genres", tags(context.genres.map((g) => [g])));
+      if (context.period) {
+        wikipedia = true;
+        block(`About the ${context.period.label}`, el("p", null, firstSentences(context.period.wikipedia.extract, 2)),
+          links([["Wikipedia", context.period.wikipedia.url]]));
+      }
+      const credit = ["Works and details from the Harvard Art Museums."];
+      if (context.artist || context.movements.length) credit.push("Artist, movements and genres from Wikidata (CC0).");
+      if (wikipedia) credit.push("Summaries are excerpts from Wikipedia, CC BY-SA 4.0.");
+      if (state.analysis) credit.push("Image analysis by CLIP, run in your browser.");
+      panel.append(el("p", "similar-credit", credit.join(" ")));
+      return panel;
+    }
+
+    function renderSimilar(section, state) {
+      const parts = [el("h3", null, "Similar works")];
+      const count = state.candidates.length;
+      parts.push(el("p", "similar-status", state.analysis
+        ? `${count} related works at Harvard, compared with this one by image analysis and context.`
+        : `${count} related works at Harvard, ranked by context. Image analysis isn't available in this browser, so style and theme can't be compared.`));
+      parts.push(contextPanel(state));
+      if (!count) {
+        parts.push(el("p", "similar-status", "No related works with images turned up for this one."));
+        section.replaceChildren(...parts);
+        return;
+      }
+      const mode = state.analysis ? similarMode : "context";
+      if (state.analysis) {
+        const sorts = el("fieldset", "sort");
+        sorts.append(el("legend", null, "Most similar by"));
+        for (const [value, { label }] of Object.entries(SIMILAR_SORTS)) {
+          const option = el("label");
+          const input = el("input");
+          input.type = "radio";
+          input.name = `similar-sort-${state.work.id}`;
+          input.value = value;
+          input.checked = value === mode;
+          input.addEventListener("change", () => {
+            similarMode = value;
+            renderSimilar(section, state);
+          });
+          option.append(input, document.createTextNode(` ${label}`));
+          sorts.append(option);
+        }
+        parts.push(sorts);
+      }
+      const score = SIMILAR_SORTS[mode].score;
+      const ordered = [...state.candidates].sort((a, b) => score(b) - score(a));
+      const grid = el("div", "results");
+      ordered.slice(0, state.shown).forEach((c) => {
+        seen.set(c.id, c);
+        grid.append(similarCard(c, state, mode));
+      });
+      parts.push(grid);
+      if (state.shown < count) {
+        parts.push(button(`Show all ${count}`, () => {
+          state.shown = count;
+          renderSimilar(section, state);
+        }));
+        parts[parts.length - 1].classList.add("hover-orange");
+      }
+      section.replaceChildren(...parts);
+    }
+
+    async function findSimilar(work, section) {
+      const id = work.id;
+      const stillOpen = () => openId === id && section.isConnected;
+      const status = el("p", "similar-status", "Gathering related works from Harvard, Wikidata and Wikipedia…");
+      status.setAttribute("role", "status");
+      section.replaceChildren(el("h3", null, "Similar works"), status);
+      let data;
+      try {
+        const response = await fetch(`${SIMILAR_API}?id=${encodeURIComponent(id)}`);
+        data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Couldn't gather similar works. Try again in a minute.");
+      } catch (err) {
+        if (stillOpen()) {
+          status.textContent = err.message === "Failed to fetch"
+            ? "Couldn't reach the similar works search. Check your connection and try again." : err.message;
+          const retry = button("Try again", () => findSimilar(work, section));
+          retry.classList.add("hover-orange");
+          section.append(retry);
+        }
+        return;
+      }
+      const state = { work, data, candidates: data.candidates.map((c) => ({ ...c })), analysis: false, shown: SIMILAR_SHOWN };
+      if (state.candidates.length) {
+        try {
+          const mb = (bytes) => Math.round(bytes / 1e6);
+          clipProgress = (loaded, total) => {
+            if (stillOpen()) status.textContent = `Downloading the image analysis model (first time only): ${mb(loaded)} of ${mb(total)} MB…`;
+          };
+          if (stillOpen()) status.textContent = "Loading the image analysis model…";
+          const model = await loadClip();
+          state.labels = model.labels;
+          const queryUrl = analysisUrl(work.image || work.large);
+          const urls = [queryUrl, ...state.candidates.map((c) => analysisUrl(c.image))];
+          await imageVectors(urls, (step, done, total) => {
+            if (stillOpen()) status.textContent = `${step}: ${done} of ${total}…`;
+          });
+          state.queryVector = vectors.get(queryUrl);
+          if (!state.queryVector) throw new Error("This work's image couldn't be analyzed.");
+          analyze(state);
+          state.analysis = true;
+        } catch (err) {
+          console.warn("Image analysis unavailable:", err);
+        }
+      }
+      similarStates.set(id, state);
+      if (stillOpen()) renderSimilar(section, state);
+    }
+
+    function similarSection(work) {
+      const section = el("section", "similar");
+      section.setAttribute("aria-label", "Similar works");
+      const done = similarStates.get(work.id);
+      if (done) {
+        renderSimilar(section, done);
+        return section;
+      }
+      const start = button("Find similar works", () => findSimilar(work, section));
+      start.classList.add("hover-orange");
+      section.append(start, el("p", "similar-status",
+        "Compares this image with related works at Harvard using image analysis, plus context from Harvard, Wikidata and Wikipedia."));
+      return section;
     }
 
     // mode: "push" adds a history entry, "replace" updates the current one (a link opened directly),

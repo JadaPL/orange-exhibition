@@ -50,6 +50,16 @@ The search runs in `api/search.py`, a Vercel server function at `/api/search`, a
 - Only works the museum allows at full size appear, because the API leaves out images of restricted works.
 - A search gathers its matches 100 at a time, so one search can use up to 20 of the museum's API requests. The museum limits each key to 2,500 requests a day. Vercel remembers each search for a day, and the page rounds colors to the museum's palette first, so similar colors share one remembered search.
 
+## Finding similar works
+
+Every selected work has a **Find similar works** button. It looks for related works at Harvard and ranks them by **Best match**, **Style**, **Theme** or **Context**. Each result shows why it's there: orange-outlined reasons come from image analysis, and grey ones from context.
+
+- **Image analysis.** The page compares the actual images using [CLIP](https://github.com/openai/CLIP) (`Xenova/clip-vit-base-patch32`, MIT license), an image model that runs in the visitor's browser through [Transformers.js](https://huggingface.co/docs/transformers.js). It measures how alike two images look and recognizes themes (such as landscape, portrait or abstraction) and styles (such as woodblock print, color field or photograph) from the descriptions in `clip-labels.json`. The model is a one-time 64 MB download that the browser then keeps. It uses the computer's graphics chip (WebGPU) where available, which is about 20 times faster.
+- **Harvard context.** `api/similar.py`, a Vercel server function at `/api/similar`, gathers candidates from the Harvard Art Museums API: works by the same artist, works shown in the same exhibitions, works of the same type, period and culture, works with the same technique, and works with a similar palette.
+- **Outside context.** The same function asks [Wikidata](https://www.wikidata.org/) for the artist's art movements and genres, adds Harvard works by other artists in those movements, and shows short [Wikipedia](https://en.wikipedia.org/) summaries of the artist and movement (or of the period, when the artist is unknown). Wikipedia text is shown as excerpts under CC BY-SA 4.0, with links to the full articles.
+
+Up to 60 candidates are compared. Only works the museum allows at full size can be candidates. To change the themes and styles the analysis recognizes, edit `tools/make-clip-labels.mjs` and run it to regenerate `clip-labels.json`.
+
 ## How it works
 
 `build.py` looks up each work in the Harvard Art Museums API, fills `template.html` with the name, artist, date, collection, image, palette and gallery location, and writes the page to `site/`. It reads the API key from the `HARVARD_API_KEY` environment variable, and the key is never included in the published page. The site is built in two places, each with its own copy of the key:
@@ -69,3 +79,6 @@ Images load from Harvard's public image service. Works with museum image restric
 - `vercel.json`: the build settings for Vercel.
 - `api/search.py`: the color search, run by Vercel.
 - `api/work.py`: a selected work's details and wall label, run by Vercel.
+- `api/similar.py`: candidates and context for Find similar works, run by Vercel.
+- `clip-labels.json`: the theme and style descriptions the image analysis compares images with.
+- `tools/make-clip-labels.mjs`: regenerates `clip-labels.json`.
