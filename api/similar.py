@@ -95,12 +95,14 @@ def candidate_queries(work, key):
         exhibition_id = exhibition.get("exhibitionid")
         if exhibition_id:
             queries.append((f"exhibition:{exhibition_id}", lambda e=exhibition_id: harvard_objects(key, 30, exhibition=e)))
-    facets = {k: work.get(k) for k in ("classification", "century", "culture") if work.get(k)}
+    def field(name):
+        return f'{name}:"{work[name].replace(chr(34), "")}"'
+    facets = [field(k) for k in ("classification", "century", "culture") if work.get(k)]
     if facets:
-        queries.append(("facets", lambda: harvard_objects(key, 60, **facets)))
+        queries.append(("facets", lambda: harvard_objects(key, 60, q=" AND ".join(facets))))
     if work.get("technique"):
-        same = {"technique": work["technique"], **({"century": work["century"]} if work.get("century") else {})}
-        queries.append(("technique", lambda: harvard_objects(key, 30, **same)))
+        same = [field("technique")] + ([field("century")] if work.get("century") else [])
+        queries.append(("technique", lambda: harvard_objects(key, 30, q=" AND ".join(same))))
     colors = [c["color"] for c in (work.get("colors") or [])[:3] if c.get("color")]
     if colors:
         queries.append(("colors", lambda: harvard_objects(key, 30, color="|".join(colors))))
