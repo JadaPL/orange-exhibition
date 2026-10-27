@@ -64,8 +64,9 @@ const pct = (x) => `${Math.max(1, Math.round(x * 100))}%`;
 
 function parseSize(dimensions) {
   const text = (dimensions || "").replace(/\s+/g, " ");
-  // Harvard writes "106.7 x 243.8 cm" in some records and "58.5 × 88.9 cm" in others.
-  const flat = text.match(/(\d+(?:\.\d+)?) ?[x×] ?(\d+(?:\.\d+)?)(?: ?[x×] ?(\d+(?:\.\d+)?))? ?cm/i);
+  // Harvard writes sizes as "106.7 x 243.8 cm", "58.5 × 88.9 cm" or "H. 54.6 x W. 29.2 cm".
+  const n = "(?:[A-Za-z]+\\.? ?)?(\\d+(?:\\.\\d+)?)";
+  const flat = text.match(new RegExp(`${n} ?[x×] ?${n}(?: ?[x×] ?${n})? ?cm`, "i"));
   if (flat) return { h: +flat[1], w: +flat[2], d: flat[3] ? +flat[3] : null };
   const height = text.match(/H\.? ?(\d+(?:\.\d+)?) ?cm/i);
   if (height) return { h: +height[1], w: null, d: null };
@@ -309,7 +310,7 @@ const METHODS = {
     return {
       method: `Linocut print in ${layers} color${layers > 1 ? "s" : ""}`,
       difficulty: "Moderate",
-      intro: `${work.technique ? `The original is a ${lc(work.technique)}. ` : ""}Soft-cut linoleum carves like wood but much more easily. ${layers > 1 ? `You'll carve one block per color and print them one after another, ${japanese ? "the same way Japanese woodblock prints are made" : "lining them up with a simple jig"}.` : ""}`,
+      intro: `${what(work) ? `The original is ${aOrAn(lc(what(work)))}. ` : ""}Soft-cut linoleum carves like wood but much more easily. ${layers > 1 ? `You'll carve one block per color and print them one after another, ${japanese ? "the same way Japanese woodblock prints are made" : "lining them up with a simple jig"}.` : ""}`,
       materials: [
         item("Soft-cut linoleum blocks", `${layers} block${layers > 1 ? "s" : ""}, ${size.label}`, 5 * layers, 9 * layers),
         item("Lino carving tool set", "", 12, 20),
@@ -340,7 +341,7 @@ const METHODS = {
     return {
       method: `Stencil screenprint in ${layers} color${layers > 1 ? "s" : ""}`,
       difficulty: "Moderate",
-      intro: `${work.technique ? `The original is a ${lc(work.technique)}. ` : ""}You'll print it the same basic way: one stencil per color, ink pushed through a mesh screen. Cut paper or vinyl stencils keep it simple at home.`,
+      intro: `${what(work) ? `The original is ${aOrAn(lc(what(work)))}. ` : ""}You'll print it the same basic way: one stencil per color, ink pushed through a mesh screen. Cut paper or vinyl stencils keep it simple at home.`,
       materials: [
         item("Screen printing frame with mesh (about 110 mesh)", `at least 5 cm bigger than ${size.label}`, 20, 35),
         item("Squeegee", "a little wider than your design", 8, 12),
@@ -368,7 +369,7 @@ const METHODS = {
     return {
       method: "Drypoint print on clear plastic",
       difficulty: "Moderate",
-      intro: `${work.technique ? `The original is ${aOrAn(lc(work.technique))}. ` : ""}Etching needs acid and a press, but drypoint gives the same kind of fine, inky lines: you scratch the image into clear plastic, ink it, wipe it and print it by hand.`,
+      intro: `${what(work) ? `The original is ${aOrAn(lc(what(work)))}. ` : ""}Etching needs acid and a press, but drypoint gives the same kind of fine, inky lines: you scratch the image into clear plastic, ink it, wipe it and print it by hand.`,
       materials: [
         item("Clear plastic sheet (PETG or acrylic, 0.5–1 mm)", size.label, 5, 10),
         item("Etching needle or a sharp scribe", "1", 5, 8),
@@ -394,7 +395,7 @@ const METHODS = {
     return {
       method: "Kitchen lithography on aluminum foil",
       difficulty: "Moderate",
-      intro: `${work.technique ? `The original is a ${lc(work.technique)}. ` : ""}Lithography relies on grease and water repelling each other. "Kitchen litho" uses the same chemistry with aluminum foil, cola and vegetable oil.`,
+      intro: `${what(work) ? `The original is ${aOrAn(lc(what(work)))}. ` : ""}Lithography relies on grease and water repelling each other. "Kitchen litho" uses the same chemistry with aluminum foil, cola and vegetable oil.`,
       materials: [
         item("Heavy-duty aluminum foil", "1 roll", 4, 6),
         item("Lithography crayon or a china marker (grease pencil)", "1–2", 3, 8),
@@ -620,6 +621,7 @@ const sum = (items, field) => Math.round(items.reduce((total, m) => total + m[fi
 const lc = (text) => text.charAt(0).toLowerCase() + text.slice(1);
 const cap = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 const aOrAn = (text) => (/^[aeiou]/i.test(text) ? `an ${text}` : `a ${text}`);
+const what = (work) => work.technique || work.medium || "";
 
 // "in cream" when the work's lightest large color is warm, as old paper usually is.
 function paperTone(colors) {
