@@ -214,6 +214,9 @@ def exhibition_data(items):
             "credit": credit,
             "objectnumber": obj.get("objectnumber") or "",
             "medium": obj.get("medium") or "",
+            "classification": obj.get("classification") or "",
+            "technique": obj.get("technique") or "",
+            "dimensions": obj.get("dimensions") or "",
             "gallery": (f"Level {gallery['floor']}, Room {gallery['gallerynumber']}"
                         if gallery.get("floor") and gallery.get("gallerynumber") else gallery.get("displayname")),
             "labels": labels,
@@ -284,6 +287,8 @@ def main():
     (out / "index.html").write_text(page, encoding="utf-8")
     # The theme and style descriptions "Find similar works" compares images with.
     shutil.copyfile(ROOT / "clip-labels.json", out / "clip-labels.json")
+    # The plan builder for "Recreate it at home", loaded only when someone asks for a plan.
+    shutil.copyfile(ROOT / "recreate.js", out / "recreate.js")
     print(f"Wrote site/index.html with {len(items)} works.")
 
 

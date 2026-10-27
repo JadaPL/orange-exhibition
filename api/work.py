@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler
 API = "https://api.harvardartmuseums.org/object/"
 IMAGES = "https://nrs.harvard.edu/"
 FIELDS = ("objectid,title,dated,people,primaryimageurl,images,imagepermissionlevel,colors,url,"
-          "labeltext,contextualtext,creditline,objectnumber,medium,gallery,copyright")
+          "labeltext,contextualtext,creditline,objectnumber,medium,gallery,copyright,classification,technique,dimensions")
 
 
 def fetch(object_id, key):
@@ -94,6 +94,9 @@ def detail_of(record):
         "credit": credit,
         "objectnumber": record.get("objectnumber") or "",
         "medium": record.get("medium") or "",
+        "classification": record.get("classification") or "",
+        "technique": record.get("technique") or "",
+        "dimensions": record.get("dimensions") or "",
         "gallery": where,
         "labels": labels_of(record),
         "url": record.get("url") or f"https://harvardartmuseums.org/collections/object/{record.get('objectid')}",

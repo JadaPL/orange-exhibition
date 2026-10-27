@@ -819,6 +819,46 @@
   }
   .reason.seen { background: transparent; box-shadow: inset 0 0 0 1px var(--orange-ink); color: var(--orange-ink); }
 
+  /* ---------- Tools under a selected work ---------- */
+  .work-tools { display: grid; gap: 0.75rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+  .tool-buttons { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+
+  /* ---------- Recreate it at home ---------- */
+  .recreate {
+    display: grid;
+    gap: 1rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--line);
+  }
+  .recreate h3 { margin: 0; font-family: var(--font-display); font-size: 1.125rem; font-weight: 700; text-wrap: balance; }
+  .recreate > p { margin: 0; font-size: 0.9375rem; line-height: 1.55; max-width: 40rem; }
+  .recreate .recreate-method { font-family: var(--font-display); font-weight: 600; font-size: 0.875rem; color: var(--orange-ink); }
+  .recreate-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 0.6rem; }
+  .recreate-tile { display: grid; gap: 0.2rem; align-content: start; padding: 0.8rem 1rem; background: var(--surface); }
+  .recreate-tile p { margin: 0; }
+  .recreate-label { font-family: var(--font-display); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .recreate-value { font-family: var(--font-display); font-size: 1.0625rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .recreate-note { font-family: var(--font-display); font-size: 0.75rem; color: var(--muted); }
+  .recreate h4 { margin: 0.25rem 0 0; font-family: var(--font-display); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .recreate-table { overflow-x: auto; }
+  .recreate-table table { width: 100%; border-collapse: collapse; font-family: var(--font-display); font-size: 0.8125rem; }
+  .recreate-table th, .recreate-table td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  .recreate-table th { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .recreate-table td:first-child { min-width: 12rem; }
+  .recreate-table .cost { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .recreate-table tfoot td { font-weight: 700; border-bottom: 0; }
+  .material-name { display: flex; align-items: center; gap: 0.4rem; font-weight: 600; }
+  .material-note { display: block; margin-top: 0.15rem; color: var(--muted); }
+  .paint-chip { flex: none; width: 0.95rem; height: 0.95rem; background: var(--c); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.18); }
+  .paint-chip.small { width: 0.6rem; height: 0.6rem; }
+  .optional-tag { font-size: 0.6875rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .recreate-steps { margin: 0; padding-left: 1.4rem; display: grid; gap: 0.9rem; }
+  .recreate-steps li { padding-left: 0.2rem; }
+  .recreate-steps li::marker { font-family: var(--font-display); font-weight: 700; color: var(--orange-ink); }
+  .recreate-steps p { margin: 0.15rem 0 0.35rem; font-size: 0.9375rem; line-height: 1.5; }
+  .recreate-steps .step-title { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 0.9375rem; }
+  .recreate-tips { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.3rem; font-size: 0.9375rem; }
+
   footer {
     border-top: 1px solid var(--line);
     padding-top: 1.25rem;
@@ -1486,7 +1526,7 @@
         footRow.append(link);
       }
       parts.push(footRow);
-      if (!problem && (work.image || work.large)) parts.push(similarSection(work));
+      if (!problem && (work.image || work.large)) parts.push(workTools(work));
       dialogBody.replaceChildren(...parts);
     }
 
@@ -1764,6 +1804,7 @@
     }
 
     async function findSimilar(work, section) {
+      section.hidden = false;
       const id = work.id;
       const stillOpen = () => openId === id && section.isConnected;
       const status = el("p", "similar-status", "Gathering related works from Harvard, Wikidata and Wikipedia…");
@@ -1815,15 +1856,147 @@
       const section = el("section", "similar");
       section.setAttribute("aria-label", "Similar works");
       const done = similarStates.get(work.id);
-      if (done) {
-        renderSimilar(section, done);
-        return section;
-      }
-      const start = button("Find similar works", () => findSimilar(work, section));
-      start.classList.add("hover-orange");
-      section.append(start, el("p", "similar-status",
-        "Compares this image with related works at Harvard using image analysis, plus context from Harvard, Wikidata and Wikipedia."));
+      if (done) renderSimilar(section, done);
+      else section.hidden = true;
       return section;
+    }
+
+    // ---------- Recreate it at home ----------
+    // recreate.js builds the plan from templates (no AI), so it's only loaded when someone asks for one.
+    let recreateModule = null;
+
+    async function showRecreate(work, section) {
+      section.hidden = false;
+      section.replaceChildren(el("h3", null, "Recreate it at home"), el("p", "similar-status", "Putting the plan together…"));
+      section.scrollIntoView({ block: "start" });
+      try {
+        recreateModule = recreateModule || import("./recreate.js");
+        const { makePlan, formatMinutes } = await recreateModule;
+        // When Find similar works has run, its style reading can pick a closer method.
+        const style = similarStates.get(work.id)?.seen?.styles?.[0]?.[0];
+        renderRecreate(section, work, makePlan(work, { style }), formatMinutes);
+      } catch (err) {
+        recreateModule = null;
+        console.warn("Recreate plan failed:", err);
+        section.replaceChildren(el("h3", null, "Recreate it at home"),
+          el("p", "similar-status", "The plan couldn't be put together. Check your connection and try again."));
+      }
+    }
+
+    function renderRecreate(section, work, plan, formatMinutes) {
+      const money = (low, high) => (low === high ? `$${low}` : `$${low}–${high}`);
+      const parts = [
+        el("h3", null, `Recreate ${work.title} at home`),
+        el("p", "recreate-method", `${plan.method} · ${plan.difficulty}`),
+        el("p", null, plan.intro),
+      ];
+
+      const tile = (label, value, note) => {
+        const box = el("div", "recreate-tile");
+        box.append(el("p", "recreate-label", label), el("p", "recreate-value", value));
+        if (note) box.append(el("p", "recreate-note", note));
+        return box;
+      };
+      const summary = el("div", "recreate-summary");
+      summary.append(
+        tile("Size", plan.size.label, !plan.size.known ? "The museum doesn't list a size, so this is a suggestion"
+          : plan.size.scaled ? `Original ${plan.size.original}, scaled down` : "Same size as the original"),
+        tile("Time", `${formatMinutes(plan.time.active)} of work`, plan.time.wait ? `plus ${formatMinutes(plan.time.wait)} of drying or waiting` : ""),
+        tile("Cost", money(plan.cost.low, plan.cost.high), plan.cost.optionalHigh
+          ? `plus ${money(plan.cost.optionalLow, plan.cost.optionalHigh)} for optional items` : "for everything you need to buy"),
+      );
+      parts.push(summary);
+
+      parts.push(el("h4", null, "Materials"));
+      const table = el("table");
+      const head = el("thead");
+      const headRow = el("tr");
+      for (const [text, className] of [["Item"], ["Amount"], ["Est. cost", "cost"]]) headRow.append(el("th", className, text));
+      head.append(headRow);
+      const body = el("tbody");
+      for (const m of plan.materials.filter((m) => !m.household)) {
+        const row = el("tr");
+        const nameCell = el("td");
+        const name = el("span", "material-name");
+        if (m.paint) {
+          const chip = el("span", "paint-chip");
+          chip.style.setProperty("--c", m.paint);
+          chip.title = "Paint color";
+          name.append(chip);
+        }
+        name.append(document.createTextNode(m.name));
+        nameCell.append(name);
+        if (m.note || m.swatches?.length) {
+          const note = el("span", "material-note", m.note || "");
+          for (const hex of m.swatches || []) {
+            const chip = el("span", "paint-chip small");
+            chip.style.setProperty("--c", hex);
+            chip.style.display = "inline-block";
+            chip.style.marginLeft = "0.25rem";
+            chip.title = `A color in the work: ${hex}`;
+            note.append(chip);
+          }
+          nameCell.append(note);
+        }
+        const cost = el("td", "cost", money(m.low, m.high));
+        if (m.optional) cost.append(el("span", "material-note optional-tag", "optional"));
+        row.append(nameCell, el("td", null, m.amount || ""), cost);
+        body.append(row);
+      }
+      const foot = el("tfoot");
+      const total = el("tr");
+      total.append(el("td", null, "Total"), el("td"), el("td", "cost", money(plan.cost.low, plan.cost.high)));
+      foot.append(total);
+      table.append(head, body, foot);
+      const scroll = el("div", "recreate-table");
+      scroll.append(table);
+      parts.push(scroll);
+      const household = plan.materials.filter((m) => m.household);
+      if (household.length) {
+        parts.push(el("p", "similar-status", `You probably already have: ${household.map((m) => m.name.charAt(0).toLowerCase() + m.name.slice(1) + (m.note ? ` (${m.note})` : "")).join("; ")}.`));
+      }
+
+      parts.push(el("h4", null, "Steps"));
+      const steps = el("ol", "recreate-steps");
+      for (const s of plan.steps) {
+        const li = el("li");
+        const times = el("div", "reasons");
+        times.append(el("span", "reason", `Work: ${formatMinutes(s.active)}`));
+        if (s.wait) times.append(el("span", "reason", `Wait: ${formatMinutes(s.wait)}`));
+        li.append(el("p", "step-title", s.title), el("p", null, s.text), times);
+        steps.append(li);
+      }
+      parts.push(steps);
+
+      if (plan.tips?.length) {
+        parts.push(el("h4", null, "Tips"));
+        const tips = el("ul", "recreate-tips");
+        plan.tips.forEach((t) => tips.append(el("li", null, t)));
+        parts.push(tips);
+      }
+      parts.push(el("p", "similar-credit", "Costs are estimates based on typical US prices for student-grade art supplies in 2026, and vary by store and brand. Times are for a first attempt. The plan is a home-friendly way to recreate the work's look, not the artist's exact process."));
+      section.replaceChildren(...parts);
+    }
+
+    function workTools(work) {
+      const wrap = el("div", "work-tools");
+      const similar = similarSection(work);
+      const recreate = el("section", "recreate");
+      recreate.setAttribute("aria-label", "Recreate it at home");
+      recreate.hidden = true;
+      const find = button("Find similar works", () => {
+        if (!similar.hidden) similar.scrollIntoView({ block: "start" });
+        else findSimilar(work, similar);
+      });
+      const make = button("Recreate it at home", () => showRecreate(work, recreate));
+      find.classList.add("hover-orange");
+      make.classList.add("hover-orange");
+      const row = el("div", "tool-buttons");
+      row.append(find, make);
+      wrap.append(row, el("p", "similar-status",
+        "Find similar works compares this image with related works at Harvard. Recreate it at home gives a step-by-step plan with times, costs and a materials list."),
+        recreate, similar);
+      return wrap;
     }
 
     // mode: "push" adds a history entry, "replace" updates the current one (a link opened directly),

@@ -60,6 +60,19 @@ Every selected work has a **Find similar works** button. It looks for related wo
 
 Up to 60 candidates are compared. Only works the museum allows at full size can be candidates. To change the themes and styles the analysis recognizes, edit `tools/make-clip-labels.mjs` and run it to regenerate `clip-labels.json`.
 
+## Recreating a work at home
+
+Next to **Find similar works**, **Recreate it at home** gives a step-by-step plan for making your own version of the selected work: a home-friendly method, a materials list with estimated costs, and steps with working and drying times.
+
+Plans come from templates in `recreate.js`, not AI, so they're free and instant:
+
+- **Method:** chosen from the work's type, technique and medium. Paintings become acrylic (or oil) paintings, screenprints become stencil screenprints, woodcuts become linocuts, etchings become drypoints on plastic, lithographs become "kitchen litho", photographs become cyanotypes, ceramics and sculpture become air-dry clay, and so on (15 methods).
+- **Size:** the home version keeps the original's proportions, scaled down to fit a practical size for the method. Quantities, costs and painting times scale with it.
+- **Colors:** paint or ink colors are matched to the museum's color analysis of the work, with the share of the image each covers and tips for mixing. Extra materials named in the medium, such as spray enamel, pencil or gold, add their own items and steps.
+- **Style:** if Find similar works has run, its style reading can choose a closer technique, such as stain painting on raw canvas for color field works.
+
+Costs are estimates for student-grade US art supplies in 2026.
+
 ## How it works
 
 `build.py` looks up each work in the Harvard Art Museums API, fills `template.html` with the name, artist, date, collection, image, palette and gallery location, and writes the page to `site/`. It reads the API key from the `HARVARD_API_KEY` environment variable, and the key is never included in the published page. The site is built in two places, each with its own copy of the key:
@@ -82,3 +95,4 @@ Images load from Harvard's public image service. Works with museum image restric
 - `api/similar.py`: candidates and context for Find similar works, run by Vercel.
 - `clip-labels.json`: the theme and style descriptions the image analysis compares images with.
 - `tools/make-clip-labels.mjs`: regenerates `clip-labels.json`.
+- `recreate.js`: builds the Recreate it at home plans.
