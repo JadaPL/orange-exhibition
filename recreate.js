@@ -64,7 +64,8 @@ const pct = (x) => `${Math.max(1, Math.round(x * 100))}%`;
 
 function parseSize(dimensions) {
   const text = (dimensions || "").replace(/\s+/g, " ");
-  const flat = text.match(/(\d+(?:\.\d+)?) ?x ?(\d+(?:\.\d+)?)(?: ?x ?(\d+(?:\.\d+)?))? ?cm/i);
+  // Harvard writes "106.7 x 243.8 cm" in some records and "58.5 × 88.9 cm" in others.
+  const flat = text.match(/(\d+(?:\.\d+)?) ?[x×] ?(\d+(?:\.\d+)?)(?: ?[x×] ?(\d+(?:\.\d+)?))? ?cm/i);
   if (flat) return { h: +flat[1], w: +flat[2], d: flat[3] ? +flat[3] : null };
   const height = text.match(/H\.? ?(\d+(?:\.\d+)?) ?cm/i);
   if (height) return { h: +height[1], w: null, d: null };
